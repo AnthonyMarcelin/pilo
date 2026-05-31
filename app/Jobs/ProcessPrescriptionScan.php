@@ -33,8 +33,8 @@ class ProcessPrescriptionScan implements ShouldQueue
 {
     use Queueable, InteractsWithQueue, SerializesModels;
 
-    public int $timeout = 600; // 10 min max (chargement modèle inclus)
-    public int $tries   = 1;   // pas de retry automatique (l'IA peut être en cours d'arrêt)
+    public int $timeout = 900; // 15 min max : VL CPU ~5 min + Ollama ~5 min + marge
+    public int $tries   = 1;   // pas de retry — relancer une inférence lente bloquerait le worker
 
     public function __construct(
         private readonly string $scanId,
