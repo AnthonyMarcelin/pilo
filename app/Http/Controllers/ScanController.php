@@ -1,0 +1,125 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Jobs\ProcessPrescriptionScan;
+use App\Models\PrescriptionScan;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rules\File;
+use Inertia\Inertia;
+use Inertia\Response;
+
+class ScanController extends Controller
+{
+    /**
+     * Upload de l'image → création du scan + dispatch du job.
+     * Redirige vers la page de statut.
+     */
+    public function store(Request $request): RedirectResponse
+    {
+        $request->validate([
+            'image' => ['required', File::image()->max(15 * 1024)],
+        ]);
+
+        $path = $request->file('image')
+            ->store('prescriptions/scans', 'local');
+
+        $scan = PrescriptionScan::create([
+            'user_id'           => $request->user()->id,
+            'status'            => 'pending',
+            'source_image_path' => $path,
+        ]);
+
+        ProcessPrescriptionScan::dispatch($scan->id);
+
+        return redirect()->route('scans.show', $scan->id);
+    }
+
+    /**
+     * Page de statut ("Lecture en cours…").
+     * Si le scan est terminé ou en échec, bascule directement vers le formulaire.
+     */
+    public function show(Request $request, string $id): Response|RedirectResponse
+    {
+        $scan = PrescriptionScan::where('user_id', $request->user()->id)
+            ->findOrFail($id);
+
+        // Scan terminé → vers le formulaire pré-rempli
+        if ($scan->isDone()) {
+            return redirect()->route('scans.form', $id);
+        }
+
+        // Scan en échec → vers formulaire vide + message
+        if ($scan->isFailed()) {
+            return redirect()
+                ->route('prescriptions.create.manual')
+                ->with('scan_error', $scan->error_message ?? 'Lecture impossible. Saisie manuelle.');
+        }
+
+        // En cours → page de polling
+        return Inertia::render('Scans/Scanning', [
+            'scanId'  => $scan->id,
+            'message' => 'Lecture de l\'ordonnance en cours…',
+        ]);
+    }
+
+    /**
+     * Endpoint de polling (JSON) : retourne le statut courant du scan.
+     */
+    public function status(Request $request, string $id): JsonResponse
+    {
+        $scan = PrescriptionScan::where('user_id', $request->user()->id)
+            ->findOrFail($id);
+
+        return response()->json([
+            'status'        => $scan->status,
+            'error_message' => $scan->error_message,
+        ]);
+    }
+
+    /**
+     * Formulaire pré-rempli à partir du draft IA.
+     */
+    public function form(Request $request, string $id): Response|RedirectResponse
+    {
+        $scan = PrescriptionScan::where('user_id', $request->user()->id)
+            ->findOrFail($id);
+
+        if (! $scan->isDone()) {
+            return redirect()->route('scans.show', $id);
+        }
+
+        $draft = $scan->toDraft();
+
+        if ($draft === null) {
+            return redirect()
+                ->route('prescriptions.create.manual')
+                ->with('scan_error', 'Brouillon indisponible. Saisie manuelle.');
+        }
+
+        return Inertia::render('Prescriptions/Form', [
+            'draft'     => $draft,
+            'scanId'    => $scan->id,
+            'imageUrl'  => $scan->source_image_path
+                ? route('scans.image', $id)
+                : null,
+        ]);
+    }
+
+    /**
+     * Sert l'image d'ordonnance originale (pour affichage dans le formulaire de validation).
+     */
+    public function image(Request $request, string $id): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $scan = PrescriptionScan::where('user_id', $request->user()->id)
+            ->findOrFail($id);
+
+        abort_unless($scan->source_image_path, 404);
+
+        return response()->streamDownload(function () use ($scan) {
+            echo file_get_contents(storage_path("app/{$scan->source_image_path}"));
+        }, basename($scan->source_image_path));
+    }
+}

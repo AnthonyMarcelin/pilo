@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\PasswordSetupController;
 use App\Http\Controllers\MedicationNoteController;
 use App\Http\Controllers\PrescriptionController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ScanController;
 use App\Http\Controllers\TodayController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -29,6 +30,13 @@ Route::middleware(['auth', 'password.changed'])->group(function () {
 
     Route::post('/prescriptions', [PrescriptionController::class, 'store'])
         ->name('prescriptions.store');
+
+    // ── Scan IA ──────────────────────────────────────────────────────────────
+    Route::post('/scans',                   [ScanController::class, 'store'])  ->name('scans.store');
+    Route::get('/scans/{id}',               [ScanController::class, 'show'])   ->name('scans.show');
+    Route::get('/scans/{id}/status',        [ScanController::class, 'status']) ->name('scans.status');
+    Route::get('/scans/{id}/form',          [ScanController::class, 'form'])   ->name('scans.form');
+    Route::get('/scans/{id}/image',         [ScanController::class, 'image'])  ->name('scans.image');
 
     Route::get('/medications', fn () => Inertia::render('Medications/Index'))
         ->name('medications.index');
