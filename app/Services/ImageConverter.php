@@ -19,10 +19,13 @@ use Illuminate\Support\Str;
 class ImageConverter
 {
     /**
-     * Stocke le fichier image en JPEG sur le disque 'local'.
+     * Stocke le fichier sur le disque 'local', avec conversion HEIC→JPEG si besoin.
      *
      * - HEIC/HEIF → converti en JPEG via Imagick (libheif requis), EXIF strippé.
-     * - Autres formats (JPG, PNG, WebP) → stockés tels quels.
+     * - PDF       → stocké tel quel (.pdf). La rasterisation PDF→image est déléguée
+     *               au service paddleocr-vl (pypdfium2) pour ne pas charger Ghostscript
+     *               côté PHP et garder la conversion dans la même couche que l'OCR.
+     * - Autres images (JPG, PNG, WebP…) → stockées telles quelles.
      *
      * @throws \ImagickException  Si la conversion HEIC échoue (image corrompue, etc.)
      */
@@ -32,7 +35,19 @@ class ImageConverter
             return $this->convertHeicToJpeg($file, $directory);
         }
 
+        // PDF et autres formats : stockage direct (extension préservée).
         return $file->store($directory, 'local');
+    }
+
+    /**
+     * Détecte un fichier PDF par MIME type ou extension.
+     */
+    public function isPdf(UploadedFile $file): bool
+    {
+        $mime = strtolower($file->getMimeType() ?? '');
+        $ext  = strtolower($file->getClientOriginalExtension());
+
+        return $mime === 'application/pdf' || $ext === 'pdf';
     }
 
     /**

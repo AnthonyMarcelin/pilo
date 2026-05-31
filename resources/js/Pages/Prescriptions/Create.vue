@@ -25,7 +25,7 @@ async function onImageSelected(e) {
       forceFormData: true,
       onError: () => {
         uploading.value = false
-        alert('Erreur lors de l\'envoi de l\'image. Vérifiez le format (JPG, PNG).')
+        alert('Erreur lors de l\'envoi. Formats acceptés : JPG, PNG, HEIC, PDF (max 25 Mo).')
       },
     })
   } catch {
@@ -43,13 +43,13 @@ async function onImageSelected(e) {
       Sur iOS/Safari, sans capture, l'OS affiche le menu natif :
         • Photothèque
         • Prendre une photo ou vidéo
-        • Parcourir (Fichiers / iCloud Drive)
-      accept inclut .heic pour les photos iPhone non converties en JPEG.
+        • Parcourir (Fichiers / iCloud Drive) — PDF accessibles ici
+      accept inclut .heic (photos iPhone) et .pdf (ordonnances dématérialisées).
     -->
     <input
       ref="scanInput"
       type="file"
-      accept="image/*,.heic,.heif"
+      accept="image/*,.heic,.heif,application/pdf,.pdf"
       class="hidden"
       @change="onImageSelected"
     />

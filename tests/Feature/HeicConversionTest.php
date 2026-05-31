@@ -124,9 +124,9 @@ describe('ScanController — HEIC accepté', function () {
         expect($scan->source_image_path)->toEndWith('.jpg');
     });
 
-    it('rejette un fichier non-image (PDF)', function () {
-        $pdf = UploadedFile::fake()->create('doc.pdf', 100, 'application/pdf');
-        $this->post(route('scans.store'), ['image' => $pdf])
+    it('rejette un fichier non supporté (txt)', function () {
+        $txt = UploadedFile::fake()->create('note.txt', 100, 'text/plain');
+        $this->post(route('scans.store'), ['image' => $txt])
             ->assertSessionHasErrors('image');
     });
 

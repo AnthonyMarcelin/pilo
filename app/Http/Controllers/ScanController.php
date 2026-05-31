@@ -22,11 +22,13 @@ class ScanController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $request->validate([
-            // File::image() exclut HEIC — on liste les MIME explicitement.
-            // La conversion HEIC→JPEG est assurée par ImageConverter ci-dessous.
+            // File::image() exclut HEIC et PDF — on liste les MIME explicitement.
+            // Conversion HEIC→JPEG : ImageConverter. PDF→image : paddleocr-vl (pypdfium2).
+            // Max 25 Mo : cohérent avec upload_max_filesize=25M (PHP) et nginx 30m.
             'image' => [
                 'required',
-                File::types(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'])->max(15 * 1024),
+                File::types(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf'])
+                    ->max(25 * 1024),
             ],
         ]);
 

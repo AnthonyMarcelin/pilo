@@ -19,7 +19,14 @@ Redimensionnement obligatoire (MAX_SIDE = 1500) :
   À 1500×1125 → ~2200 tokens vision + ~500 texte ≈ 2700 < 4096. ✓
   Gain de temps : 4032px → 1500px = ×7 moins de pixels → inférence ~2 min.
 
+Support PDF :
+  POST /ocr accepte application/pdf en plus de image/*.
+  Rasterisation via pypdfium2 (disponible via paddlex[ocr]) : scale=2 ≈ 200 DPI.
+  Chaque page est redimensionnée (MAX_SIDE) puis inférée séquentiellement.
+  block_order décalé entre pages pour maintenir l'ordre de lecture global.
+
 Contrat API POST /ocr :
+  Accepte : image/* (JPEG, PNG, WebP, …) ou application/pdf.
   Retourne des blocs ordonnés préservant la spatialité de l'ordonnance.
   block_order = ordre de lecture (essentiel pour associer nom → dosage → posologie).
   block_label = "text" | "table" | "figure" — utilisé par l'étape Ollama.
@@ -122,6 +129,34 @@ def _resize_for_ocr(src_path: str) -> tuple:
     return resized_path, True
 
 
+def _pdf_to_images(pdf_path: str) -> list:
+    """
+    Rasterise chaque page d'un PDF en fichier JPEG temporaire.
+    Retourne la liste des chemins créés (tous à supprimer après usage).
+
+    pypdfium2 est disponible via paddlex[ocr]==3.4.3 (dépendance directe pypdfium2>=4).
+    scale=2 → ~200 DPI pour une page A4 standard (~1654×2339 px avant redim par MAX_SIDE).
+    Le redimensionnement MAX_SIDE est appliqué ensuite par _resize_for_ocr().
+    """
+    import pypdfium2 as pdfium  # type: ignore[import]
+
+    pdf = pdfium.PdfDocument(pdf_path)
+    paths = []
+    try:
+        for i in range(len(pdf)):
+            page = pdf[i]
+            bitmap = page.render(scale=2)
+            img = bitmap.to_pil()
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                path = tmp.name
+            img.save(path, "JPEG", quality=85)
+            img.close()
+            paths.append(path)
+    finally:
+        pdf.close()
+    return paths
+
+
 @app.get("/health")
 def health():
     """Health-check — retourne 200 quand le service est démarré."""
@@ -131,54 +166,83 @@ def health():
 @app.post("/ocr")
 async def run_ocr(file: UploadFile = File(...)):
     """
-    POST /ocr — reçoit une image d'ordonnance, retourne des blocs ordonnés.
+    POST /ocr — reçoit une image ou un PDF d'ordonnance, retourne des blocs ordonnés.
 
-    Le résultat préserve l'ordre de lecture spatial (block_order) et le type de bloc
-    (block_label : text / table / figure / formula / seal).
-    Les blocs "table" ont un block_content HTML (<table>…</table>).
-    Les blocs "text" ont un block_content en texte plat.
+    Accepte : image/* (JPEG, PNG, WebP…) ou application/pdf.
+    Pour les PDF multi-pages, chaque page est traitée séquentiellement.
+    Le block_order des pages suivantes est décalé pour maintenir l'ordre global.
 
     Ce résultat est transmis tel quel à Ollama pour normalisation JSON.
     NE PAS aplatir en texte brut avant d'envoyer à Ollama — l'ordre spatial est
     l'information critique pour associer nom médicament → dosage → posologie.
     """
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Image attendue (image/*)")
+    is_pdf   = (file.content_type == "application/pdf")
+    is_image = bool(file.content_type and file.content_type.startswith("image/"))
+
+    if not (is_pdf or is_image):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Image (image/*) ou PDF (application/pdf) attendu. Reçu : {file.content_type}",
+        )
 
     data = await file.read()
-    original_filename = file.filename or "ordonnance.jpg"
+    original_filename = file.filename or ("ordonnance.pdf" if is_pdf else "ordonnance.jpg")
 
-    tmp_path     = None
-    resized_path = None
+    tmp_path:      str | None = None   # fichier uploadé brut
+    pdf_img_paths: list       = []     # fichiers JPEG issus de la rasterisation PDF
+    resized_paths: list       = []     # fichiers JPEG redimensionnés
+    all_raw_blocks: list      = []
+
     try:
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        suffix = ".pdf" if is_pdf else ".jpg"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp_path = tmp.name
             tmp.write(data)
 
-        # Redimensionner avant inférence — obligatoire pour tenir dans --ctx-size 4096.
-        # Photo iPhone 3024×4032 → ×7 moins de pixels → inférence ~2 min au lieu de 9.
-        inference_path, did_resize = _resize_for_ocr(tmp_path)
-        if did_resize:
-            resized_path = inference_path
+        # Construire la liste des images à inférer (1 pour image, N pour PDF N pages)
+        if is_pdf:
+            image_paths    = _pdf_to_images(tmp_path)
+            pdf_img_paths  = image_paths
+        else:
+            image_paths = [tmp_path]
 
         pipeline = get_pipeline()
-        results = pipeline.predict(inference_path)
+
+        for img_path in image_paths:
+            # Redimensionner avant inférence — obligatoire pour tenir dans --ctx-size 4096.
+            inference_path, did_resize = _resize_for_ocr(img_path)
+            if did_resize:
+                resized_paths.append(inference_path)
+
+            results = pipeline.predict(inference_path)
+            if not results:
+                continue
+
+            page_blocks = results[0].json.get("parsing_res_list", [])
+
+            # Décaler block_order : les blocs des pages suivantes s'ordonnent après
+            # ceux des pages précédentes (offset = nombre total de blocs déjà collectés).
+            offset = len(all_raw_blocks)
+            for blk in page_blocks:
+                order = blk.get("block_order")
+                if order is not None:
+                    blk["block_order"] = order + offset
+
+            all_raw_blocks.extend(page_blocks)
 
     finally:
         if tmp_path is not None:
             Path(tmp_path).unlink(missing_ok=True)
-        if resized_path is not None:
-            Path(resized_path).unlink(missing_ok=True)
+        for p in pdf_img_paths:
+            Path(p).unlink(missing_ok=True)
+        for p in resized_paths:
+            Path(p).unlink(missing_ok=True)
 
-    # --- Extraction des blocs depuis parsing_res_list ---
+    # --- Normalisation des blocs en contrat API ---
     blocks = []
     markdown_lines = []
 
-    raw_blocks: list = []
-    if results:
-        raw_blocks = results[0].json.get("parsing_res_list", [])
-
-    for idx, blk in enumerate(raw_blocks, start=1):
+    for idx, blk in enumerate(all_raw_blocks, start=1):
         block_order   = blk.get("block_order",   idx)
         block_label   = str(blk.get("block_label", "text")).lower()
         block_content = blk.get("block_content", "") or ""
