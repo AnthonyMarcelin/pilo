@@ -65,6 +65,12 @@ RUN composer dump-autoload --optimize \
  && chown -R www-data:www-data storage bootstrap/cache \
  && chmod -R 775 storage bootstrap/cache
 
+# Augmente les limites d'upload PHP (photos iPhone 2-4 Mo, ordonnances jusqu'à ~15 Mo).
+# Cohérent avec File::max(15*1024) dans les règles de validation Laravel
+# et client_max_body_size 30m dans la conf nginx.
+RUN printf 'upload_max_filesize = 25M\npost_max_size = 30M\n' \
+    > /usr/local/etc/php/conf.d/uploads.ini
+
 # Entrypoint : gère composer/assets/SQLite/permissions avant de lancer le process
 COPY docker/app/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
