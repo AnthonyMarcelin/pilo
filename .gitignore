@@ -1,0 +1,49 @@
+# --- Documents de conception personnels (NE PAS publier : nom, domaine, infos serveur) ---
+/CLAUDE.md
+/SPEC.md
+/PLAN.md
+
+# --- Laravel ---
+/vendor
+/node_modules
+/public/build
+/public/hot
+/public/storage
+/storage/*.key
+/storage/pail
+/storage/app/prescriptions
+.env
+.env.backup
+.env.production
+.phpunit.result.cache
+.phpunit.cache
+Homestead.json
+Homestead.yaml
+auth.json
+npm-debug.log
+yarn-error.log
+
+# --- Outils / IDE / OS ---
+/.fleet
+/.idea
+/.vscode
+.DS_Store
+*.local
+
+# --- Données / images d'ordonnances (santé : jamais versionnées) ---
+/storage/app/private
+*.sqlite
+*.sqlite-journal
+
+# --- Laravel default additions ---
+*.log
+.phpactor.json
+/.codex
+/.cursor/
+/.nova
+/.phpunit.cache
+/.zed
+/auth.json
+/public/fonts-manifest.dev.json
+_ide_helper.php
+Thumbs.db

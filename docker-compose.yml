@@ -1,0 +1,108 @@
+# docker-compose.yml — Pilo (référence)
+# Cible : serveur perso (Proxmox), CPU uniquement, 32 Go RAM.
+# Adapter les chemins de build et versions au fil du scaffold (vérifier les versions via Context7).
+
+services:
+  # --- Application Laravel (PHP-FPM) ---
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./:/var/www/html
+      - storage_images:/var/www/html/storage/app/prescriptions
+    restart: unless-stopped
+
+  # --- Serveur web (Nginx) sert l'app + les assets Vite buildés ---
+  web:
+    image: nginx:stable-alpine
+    depends_on:
+      - app
+    ports:
+      - "8080:80"   # à exposer derrière votre reverse proxy
+    volumes:
+      - ./:/var/www/html:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+
+  # --- Worker de file d'attente (scan asynchrone) ---
+  queue:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    command: php artisan queue:work --tries=3 --timeout=180
+    env_file: .env
+    depends_on:
+      - app
+      - redis
+    volumes:
+      - ./:/var/www/html
+      - storage_images:/var/www/html/storage/app/prescriptions
+      # Socket Docker : nécessaire pour pilo:ai-up/down (usage auto-hébergé uniquement — ne pas exposer)
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  # --- Base de données ---
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-pilo}
+      POSTGRES_USER: ${DB_USERNAME:-pilo}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-pilo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # --- Cache + file d'attente ---
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # --- Service OCR : PaddleOCR-VL (image -> texte + layout), CPU ---
+  # Profil "ai" : NON démarré par défaut. Réveillé à la demande par le job de scan
+  # (RAM serrée — voir CLAUDE.md §3.1). Démarrage manuel : docker compose --profile ai up -d paddleocr
+  paddleocr:
+    profiles: ["ai"]
+    build:
+      context: ./docker/paddleocr
+      dockerfile: Dockerfile
+    # Petit wrapper FastAPI exposant POST /ocr (multipart image -> JSON texte/layout).
+    expose:
+      - "8000"
+    volumes:
+      - paddle_models:/root/.paddleocr
+    restart: unless-stopped
+    # CPU only : pas de section deploy/gpu.
+
+  # --- Service LLM : Ollama (texte -> JSON structuré) ---
+  # Profil "ai" : NON démarré par défaut (idem paddleocr).
+  ollama:
+    profiles: ["ai"]
+    image: ollama/ollama:latest
+    expose:
+      - "11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    # Après le 1er démarrage : docker compose exec ollama ollama pull qwen2.5:3b-instruct
+    # (3B par défaut sur serveur à RAM serrée ; 7B seulement si la mémoire le permet)
+
+volumes:
+  db_data:
+  redis_data:
+  storage_images:
+  paddle_models:
+  ollama_models:
