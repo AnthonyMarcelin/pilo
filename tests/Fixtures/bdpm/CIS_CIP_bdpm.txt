@@ -1,0 +1,5 @@
+60025516	3400936227082	PAROXETINE BIOGARAN 20 mg, comprimé pelliculé - Boîte de 30	Autorisation active	Commercialisée	01/01/2000	3400936227082	O	65%	3,00
+60025516	3400936540001	PAROXETINE BIOGARAN 20 mg, comprimé pelliculé - Boîte de 14	Autorisation active	Commercialisée	01/01/2000	3400936540001	O	65%	2,00
+64013600	3400936228089	LEVOTHYROX 100 microgrammes - Boîte de 30 comprimés	Autorisation active	Commercialisée	01/01/2000	3400936228089	O	65%	2,50
+67256775	3400936229086	DOLIPRANE 1000 mg - plaquette de 8 comprimés	Autorisation active	Commercialisée	01/01/2000	3400936229086	O	65%	1,50
+60006756	3400934567891	FLUCONAZOLE 150 mg, gélule - Boîte de 3	Autorisation active	Commercialisée	01/01/2000	3400934567891	O	65%	4,00

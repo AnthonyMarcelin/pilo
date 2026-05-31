@@ -1,0 +1,4 @@
+61234567	123	Suivi	15/03/2023	Important	Traitement des épisodes dépressifs majeurs chez l'adulte.
+61234567	122	Suivi	01/01/2020	Insuffisant	Insuffisant dans l'indication de l'AMM
+64013600	456	Suivi	10/06/2022	Important	Traitement des hypothyroïdies.
+60006756	789	Suivi	01/01/2021	Service médical rendu	
