@@ -2,11 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "pilo-nginx",
-      "runtimeExecutable": "docker",
-      "runtimeArgs": ["compose", "up", "-d", "web"],
-      "port": 8080,
-      "autoPort": false
+      "name": "pilo-vite",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5174"],
+      "port": 5174
+    },
+    {
+      "name": "pilo-app",
+      "runtimeExecutable": "php",
+      "runtimeArgs": ["artisan", "serve", "--port=8001"],
+      "port": 8001
     }
   ]
 }

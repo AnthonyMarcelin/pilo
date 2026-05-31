@@ -1,11 +1,6 @@
 <script setup>
 import GuestLayout from '@/Layouts/GuestLayout.vue'
-import { Head, Link, useForm } from '@inertiajs/vue3'
-
-defineProps({
-    canResetPassword: { type: Boolean },
-    status: { type: String },
-})
+import { Head, useForm } from '@inertiajs/vue3'
 
 const form = useForm({
     email: '',
@@ -23,11 +18,6 @@ const submit = () => {
 <template>
     <GuestLayout>
         <Head title="Connexion — Pilo" />
-
-        <!-- Message de statut (ex. déconnexion, reset password) -->
-        <div v-if="status" class="mb-4 rounded-lg px-4 py-3 text-sm text-green-700 bg-green-50 border border-green-200">
-            {{ status }}
-        </div>
 
         <form @submit.prevent="submit" class="space-y-5">
 
@@ -60,24 +50,14 @@ const submit = () => {
                 <p v-if="form.errors.password" class="field-error">{{ form.errors.password }}</p>
             </div>
 
-            <div class="flex items-center justify-between">
-                <label class="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                        type="checkbox"
-                        v-model="form.remember"
-                        class="rounded border-slate-300 text-slate-700 focus:ring-slate-400"
-                    />
-                    <span class="text-sm text-slate-600">Se souvenir de moi</span>
-                </label>
-
-                <Link
-                    v-if="canResetPassword"
-                    :href="route('password.request')"
-                    class="text-xs text-slate-400 hover:text-slate-600 transition-colors"
-                >
-                    Mot de passe oublié ?
-                </Link>
-            </div>
+            <label class="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                    type="checkbox"
+                    v-model="form.remember"
+                    class="rounded border-slate-300 text-slate-700 focus:ring-slate-400"
+                />
+                <span class="text-sm text-slate-600">Se souvenir de moi</span>
+            </label>
 
             <button
                 type="submit"

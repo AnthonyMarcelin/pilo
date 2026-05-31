@@ -32,9 +32,12 @@ export default defineConfig({
                 id: '/today',
                 scope: '/',
                 icons: [
+                    // SVG vectoriel — qualité parfaite à toute résolution (Chrome 93+, Firefox)
+                    { src: '/icons/pilo.svg',          sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+                    { src: '/icons/pilo-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+                    // PNG de secours — iOS Safari, navigateurs plus anciens
                     { src: '/icons/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
                     { src: '/icons/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-                    { src: '/icons/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
                 ],
             },
             workbox: {

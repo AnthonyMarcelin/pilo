@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Fond blanc plein bleed (requis pour maskable) -->
+  <rect width="100" height="100" fill="#f8fafc"/>
+  <!-- Contenu dans la zone de sécurité 80% : translate(10,10) scale(0.8) -->
+  <defs>
+    <clipPath id="cm">
+      <rect x="10" y="10" width="80" height="80" rx="20"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#cm)">
+    <rect x="10" y="10" width="40" height="40" fill="#fde68a"/>
+    <rect x="50" y="10" width="40" height="40" fill="#bbf7d0"/>
+    <rect x="10" y="50" width="40" height="40" fill="#c7d2fe"/>
+    <rect x="50" y="50" width="40" height="40" fill="#ddd6fe"/>
+    <!-- Pills (coords originales × 0.8 + 10) -->
+    <rect x="20.4" y="26.4" width="19.2" height="7.2" rx="3.6" fill="#92400e"/>
+    <rect x="60.4" y="26.4" width="19.2" height="7.2" rx="3.6" fill="#14532d"/>
+    <rect x="20.4" y="66.4" width="19.2" height="7.2" rx="3.6" fill="#312e81"/>
+    <rect x="60.4" y="66.4" width="19.2" height="7.2" rx="3.6" fill="#4c1d95"/>
+    <!-- Croix -->
+    <rect x="48" y="10" width="4" height="80" fill="white"/>
+    <rect x="10" y="48" width="80" height="4" fill="white"/>
+  </g>
+  <rect x="10" y="10" width="80" height="80" rx="20" fill="none" stroke="#e2e8f0" stroke-width="1.5"/>
+</svg>
