@@ -84,11 +84,13 @@ final class PrescriptionDraftMapper
         $phases = [];
         foreach ($rawPhases as $rp) {
             $rp = (array) $rp;
-            if (empty($rp['duration_days'])) {
-                continue; // palier invalide
+            $dur = (int) ($rp['duration_days'] ?? 0);
+            if ($dur <= 0) {
+                // Ignore les paliers avec durée nulle ou négative (3B peut inventer -1)
+                continue;
             }
             $phases[] = new PrescriptionItemPhaseDraft(
-                duration_days: (int)   $rp['duration_days'],
+                duration_days: $dur,
                 morning:       isset($rp['morning']) ? (float) $rp['morning'] : null,
                 noon:          isset($rp['noon'])    ? (float) $rp['noon']    : null,
                 evening:       isset($rp['evening']) ? (float) $rp['evening'] : null,

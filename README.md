@@ -30,9 +30,39 @@ Les données de santé ne quittent jamais le serveur. La lecture des ordonnances
 
 L'extraction est volontairement découpée en deux étapes (OCR puis structuration) derrière une interface `OcrProvider` enfichable, afin de pouvoir brancher d'autres moteurs.
 
-## Matériel requis
+---
 
-Pilo vise du matériel modeste, **CPU uniquement** (pas de GPU nécessaire). Les services IA ne sont démarrés que le temps d'un scan, puis arrêtés, pour limiter l'empreinte mémoire — utile sur un serveur déjà chargé. Compter un pic mémoire de l'ordre de 5–6 Go pendant un scan avec le modèle 3B, et une consommation minime au repos.
+## Prérequis matériel
+
+### Architecture CPU
+
+Pilo vise du **matériel modeste, CPU uniquement** (pas de GPU nécessaire). Les services IA ne démarrent que le temps d'un scan, puis s'arrêtent automatiquement.
+
+### Compatibilité ARM vs x86_64
+
+Toutes les composantes de Pilo tournent sur **ARM64** (Apple Silicon, Raspberry Pi, AWS Graviton…) **et x86_64**. Une seule exception : le scan OCR requiert x86_64, à cause du build PaddleOCR-VL qui ne dispose pas encore d'images ARM64 officielles (limitation du modèle de vision, pas de Pilo).
+
+| Fonctionnalité | ARM64 | x86_64 |
+|---|:---:|:---:|
+| Application complète (pilulier, alertes, historique) | ✅ | ✅ |
+| **Saisie manuelle d'ordonnance** | ✅ | ✅ |
+| Import BDPM, référentiel médicaments | ✅ | ✅ |
+| PWA hors-ligne | ✅ | ✅ |
+| Normalisation Ollama (qwen2.5) | ✅ | ✅ |
+| **Scan OCR automatique** | ✗ | ✅ |
+
+> **ARM64** : l'application est pleinement utilisable via la **saisie manuelle**, chemin nominal conçu dès le départ — pas un secours. Seul le scan est limité par le build du modèle de vision. Cette limitation devrait disparaître si PaddlePaddle publie des images ARM64.
+
+### RAM serveur
+
+| Mode | RAM estimée |
+|---|---|
+| Au repos (app + web + redis + queue) | ~1–1.5 Go |
+| **Pic pendant un scan** (Ollama 3B + llama-server VL + paddleocr-vl) | ~4.5–5 Go |
+
+VM recommandée : **6 Go de RAM minimum**. Le pic est transitoire (durée du scan) ; tout est relâché ensuite.
+
+---
 
 ## Installation
 
@@ -45,14 +75,28 @@ docker compose up -d --build app web redis queue
 docker compose exec app php artisan key:generate
 docker compose exec app php artisan migrate --seed
 docker compose exec app php artisan pilo:import-bdpm   # référentiel médicaments (France)
-
-# Préparer le modèle IA (réveil ponctuel)
-docker compose --profile ai up -d paddleocr ollama
-docker compose exec ollama ollama pull qwen2.5:3b-instruct
-docker compose stop paddleocr ollama
 ```
 
-Exposez ensuite le service `web` derrière le reverse proxy de votre choix (TLS recommandé). Voir `.env.example` pour les variables de configuration.
+### Préparer les services IA — scan OCR (x86_64 uniquement)
+
+```bash
+# 1. Modèles VL dans le volume (~1.8 Go — une seule quantification disponible)
+docker run --rm -v pilo_vl_models:/models alpine sh -c "
+  apk add --no-cache wget &&
+  wget -O /models/PaddleOCR-VL-1.6-GGUF.gguf \
+    'https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/main/PaddleOCR-VL-1.6-GGUF.gguf' &&
+  wget -O /models/PaddleOCR-VL-1.6-GGUF-mmproj.gguf \
+    'https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/main/PaddleOCR-VL-1.6-GGUF-mmproj.gguf'
+"
+
+# 2. Modèle Ollama de structuration JSON (~1.9 Go)
+docker compose --profile ai up -d ollama
+docker compose exec ollama ollama pull qwen2.5:3b-instruct
+
+# 3. En exploitation, pilo:ai-up démarre et pilo:ai-down arrête l'IA automatiquement.
+```
+
+Exposez ensuite le service `web` derrière votre reverse proxy (TLS recommandé). Voir `.env.example`.
 
 ## Référentiel médicaments
 
