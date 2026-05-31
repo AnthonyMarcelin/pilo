@@ -32,10 +32,14 @@ final class DailyRegimen
     {
         $date = $date->copy()->startOfDay();
 
+        // Charge les items des ordonnances actives ET terminées.
+        // Les terminées restent affichées grisées ("terminé le X") jusqu'à archivage
+        // explicite par l'utilisateur — règle d'or n°4 : pas de disparition silencieuse.
+        // Les archivées (action humaine) sont les seules exclues.
         $items = PrescriptionItem::query()
             ->whereHas('prescription', fn (Builder $q) => $q
                 ->where('user_id', $this->userId)
-                ->where('status', 'active'))
+                ->whereIn('status', ['active', 'terminated']))
             ->with('phases')
             ->get();
 

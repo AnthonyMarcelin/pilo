@@ -21,6 +21,7 @@ class StorePrescriptionRequest extends FormRequest
             'prescribed_at'                    => ['nullable', 'date'],
             'notes'                            => ['nullable', 'string', 'max:2000'],
             'source_image'                     => ['nullable', 'image', 'max:10240'],
+            'scan_id'                          => ['nullable', 'string', 'exists:prescription_scans,id'],
 
             // ── Lignes ────────────────────────────────────────────────────
             'items'                            => ['required', 'array', 'min:1', 'max:20'],

@@ -401,10 +401,13 @@ describe('DailyRegimen — item terminé (grisé, jamais masqué)', function () 
             ->and($amox->morningQty)->toBe(0.0); // Dose zéro car terminé
     });
 
-    it('un item d\'une ordonnance TERMINÉE n\'apparaît pas dans le regimen du jour', function () {
+    // Règle d'or n°4 : une prescription terminée reste visible dans "Aujourd'hui"
+    // grisée/barrée avec "terminé le X — à renouveler ?", jusqu'à archivage HUMAIN.
+    // L'archivage (status = 'archived') est le seul moyen de faire disparaître un item.
+    it('un item d\'une ordonnance TERMINÉE apparaît en grisé dans le regimen du jour (règle d\'or n°4)', function () {
         $user = rxUser();
 
-        // Ordonnance terminée (status = terminated)
+        // Ordonnance terminée (toutes les phases épuisées depuis longtemps)
         $rxTerminated = Prescription::create([
             'user_id'         => $user->id,
             'prescriber_name' => 'Dr. Ancien',
@@ -441,14 +444,50 @@ describe('DailyRegimen — item terminé (grisé, jamais masqué)', function () 
 
         $result = (new DailyRegimen($user->id))->forDate(Carbon::parse('2026-05-31'));
 
-        // L'Amoxicilline de l'ordo terminée NE doit PAS apparaître
+        // L'Amoxicilline DOIT apparaître — grisée (isTerminated = true), dose zéro,
+        // avec endDateLabel "terminé le…". L'utilisateur doit archiver pour la faire disparaître.
         $amox = collect([...$result->fixed['morning'], ...$result->fixed['noon'], ...$result->fixed['evening'], ...$result->fixed['bedtime']])
             ->first(fn ($e) => str_contains($e->medicationName, 'Amoxicilline'));
-        expect($amox)->toBeNull();
+        expect($amox)->not->toBeNull()
+            ->and($amox->isTerminated)->toBeTrue()
+            ->and($amox->morningQty)->toBe(0.0)
+            ->and($amox->endDateLabel)->toContain('terminé le');
 
-        // Le Levothyrox de l'ordo active DOIT apparaître
+        // Le Levothyrox de l'ordo active DOIT apparaître actif
         $levo = collect($result->fixed['morning'])->first(fn ($e) => str_contains($e->medicationName, 'Levothyrox'));
-        expect($levo)->not->toBeNull();
+        expect($levo)->not->toBeNull()
+            ->and($levo->isTerminated)->toBeFalse();
+    });
+
+    it('un item d\'une ordonnance ARCHIVÉE n\'apparaît PAS dans le regimen du jour', function () {
+        $user = rxUser();
+
+        // Ordonnance archivée (action humaine — doit disparaître de Aujourd'hui)
+        $rxArchived = Prescription::create([
+            'user_id'         => $user->id,
+            'prescriber_name' => 'Dr. Ancien',
+            'prescribed_at'   => '2026-04-01',
+            'source_type'     => 'manual',
+            'status'          => 'archived',
+        ]);
+        $archivedItem = PrescriptionItem::create([
+            'prescription_id'            => $rxArchived->id,
+            'medication_name'            => 'Ibuprofène 400 mg',
+            'medication_name_normalized' => 'ibuprofène',
+            'intake_type'                => 'fixe',
+            'morning'                    => 1.0,
+            'posologie_brute'            => '1 cp matin',
+            'duration_days'              => 5,
+            'start_date'                 => '2026-04-01',
+            'end_date'                   => '2026-04-06',
+        ]);
+        PrescriptionItemPhase::create(['prescription_item_id' => $archivedItem->id, 'phase_order' => 1, 'duration_days' => 5, 'morning' => 1.0]);
+
+        $result = (new DailyRegimen($user->id))->forDate(Carbon::parse('2026-05-31'));
+
+        $ibu = collect([...$result->fixed['morning'], ...$result->fixed['noon'], ...$result->fixed['evening'], ...$result->fixed['bedtime']])
+            ->first(fn ($e) => str_contains($e->medicationName, 'Ibuprofène'));
+        expect($ibu)->toBeNull(); // Archivé = effacé de la vue Aujourd'hui
     });
 });
 

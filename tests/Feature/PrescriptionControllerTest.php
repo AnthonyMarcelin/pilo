@@ -214,3 +214,155 @@ it('requires authentication', function () {
     $this->post(route('prescriptions.store'), ['items' => [fixeItem()]])
         ->assertRedirect(route('login'));
 });
+
+// ─── Index ────────────────────────────────────────────────────────────────────
+
+it('index renders the prescriptions page with user data', function () {
+    Prescription::factory()->create([
+        'user_id'    => $this->user->id,
+        'status'     => 'active',
+        'prescribed_at' => '2026-05-01',
+    ]);
+
+    $this->get(route('prescriptions.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Prescriptions/Index')
+            ->has('prescriptions', 1)
+        );
+});
+
+it('index auto-terminates an active prescription whose all items have past end_date', function () {
+    $prescription = Prescription::factory()->create([
+        'user_id' => $this->user->id,
+        'status'  => 'active',
+    ]);
+
+    PrescriptionItem::factory()->create([
+        'prescription_id' => $prescription->id,
+        'intake_type'     => 'fixe',
+        'end_date'        => now()->subDay()->toDateString(),
+    ]);
+
+    $this->get(route('prescriptions.index'))->assertOk();
+
+    expect($prescription->fresh()->status)->toBe('terminated');
+});
+
+it('index does not terminate when at least one item has no end_date', function () {
+    $prescription = Prescription::factory()->create([
+        'user_id' => $this->user->id,
+        'status'  => 'active',
+    ]);
+
+    PrescriptionItem::factory()->create([
+        'prescription_id' => $prescription->id,
+        'intake_type'     => 'fixe',
+        'end_date'        => null,
+    ]);
+
+    $this->get(route('prescriptions.index'))->assertOk();
+
+    expect($prescription->fresh()->status)->toBe('active');
+});
+
+it('index does not expose prescriptions of another user', function () {
+    $other = User::factory()->create();
+    Prescription::factory()->create(['user_id' => $other->id]);
+
+    $this->get(route('prescriptions.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('prescriptions', 0));
+});
+
+// ─── Show ─────────────────────────────────────────────────────────────────────
+
+it('show renders prescription detail', function () {
+    $prescription = Prescription::factory()->create([
+        'user_id'        => $this->user->id,
+        'prescriber_name' => 'Dr. Test',
+    ]);
+
+    $this->get(route('prescriptions.show', $prescription))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Prescriptions/Show')
+            ->where('prescription.prescriber_name', 'Dr. Test')
+        );
+});
+
+it('show returns 403 for another user prescription', function () {
+    $other        = User::factory()->create();
+    $prescription = Prescription::factory()->create(['user_id' => $other->id]);
+
+    $this->get(route('prescriptions.show', $prescription))
+        ->assertForbidden();
+});
+
+// ─── Archive ─────────────────────────────────────────────────────────────────
+
+it('archive changes status to archived', function () {
+    $prescription = Prescription::factory()->create([
+        'user_id' => $this->user->id,
+        'status'  => 'active',
+    ]);
+
+    $this->post(route('prescriptions.archive', $prescription))
+        ->assertRedirect(route('prescriptions.index'));
+
+    expect($prescription->fresh()->status)->toBe('archived');
+});
+
+it('archive returns 403 for another user prescription', function () {
+    $other        = User::factory()->create();
+    $prescription = Prescription::factory()->create(['user_id' => $other->id, 'status' => 'active']);
+
+    $this->post(route('prescriptions.archive', $prescription))
+        ->assertForbidden();
+});
+
+it('archive returns 422 if already archived', function () {
+    $prescription = Prescription::factory()->create([
+        'user_id' => $this->user->id,
+        'status'  => 'archived',
+    ]);
+
+    $this->post(route('prescriptions.archive', $prescription))
+        ->assertStatus(422);
+});
+
+// ─── Dédup ────────────────────────────────────────────────────────────────────
+
+it('store flashes a duplicate warning when a medication already exists in an active prescription', function () {
+    // Ordonnance existante avec le même médicament
+    $existing = Prescription::factory()->create(['user_id' => $this->user->id, 'status' => 'active']);
+    PrescriptionItem::factory()->create([
+        'prescription_id'            => $existing->id,
+        'medication_name'            => 'Paroxétine 20 mg',
+        'medication_name_normalized' => 'paroxétine',
+    ]);
+
+    $response = $this->post(route('prescriptions.store'), [
+        'items' => [fixeItem(['medication_name' => 'Paroxétine 20 mg'])],
+    ]);
+
+    $response->assertRedirect(route('prescriptions.index'));
+    $response->assertSessionHas('duplicate_warnings');
+    expect(session('duplicate_warnings'))->toHaveCount(1)
+        ->and(session('duplicate_warnings')[0])->toContain('Paroxétine 20 mg');
+});
+
+it('store does not flag duplicate when medication is in an archived prescription', function () {
+    $archived = Prescription::factory()->create(['user_id' => $this->user->id, 'status' => 'archived']);
+    PrescriptionItem::factory()->create([
+        'prescription_id'            => $archived->id,
+        'medication_name'            => 'Amoxicilline 500 mg',
+        'medication_name_normalized' => 'amoxicilline',
+    ]);
+
+    $response = $this->post(route('prescriptions.store'), [
+        'items' => [fixeItem()],
+    ]);
+
+    $response->assertSessionMissing('duplicate_warnings');
+});

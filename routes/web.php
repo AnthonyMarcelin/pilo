@@ -19,7 +19,7 @@ Route::middleware(['auth', 'password.changed'])->group(function () {
 
     Route::get('/today', TodayController::class)->name('today');
 
-    Route::get('/prescriptions', fn () => Inertia::render('Prescriptions/Index'))
+    Route::get('/prescriptions', [PrescriptionController::class, 'index'])
         ->name('prescriptions.index');
 
     Route::get('/prescriptions/create', fn () => Inertia::render('Prescriptions/Create'))
@@ -30,6 +30,15 @@ Route::middleware(['auth', 'password.changed'])->group(function () {
 
     Route::post('/prescriptions', [PrescriptionController::class, 'store'])
         ->name('prescriptions.store');
+
+    Route::get('/prescriptions/{prescription}', [PrescriptionController::class, 'show'])
+        ->name('prescriptions.show');
+
+    Route::post('/prescriptions/{prescription}/archive', [PrescriptionController::class, 'archive'])
+        ->name('prescriptions.archive');
+
+    Route::get('/prescriptions/{prescription}/image', [PrescriptionController::class, 'image'])
+        ->name('prescriptions.image');
 
     // ── Scan IA ──────────────────────────────────────────────────────────────
     Route::post('/scans',                   [ScanController::class, 'store'])  ->name('scans.store');

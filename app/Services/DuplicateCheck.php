@@ -27,11 +27,13 @@ final class DuplicateCheck
         int    $userId,
         string $normalizedName,
         ?int   $excludeItemId = null,
+        ?int   $excludePrescriptionId = null,
     ): ?PrescriptionItem {
         return PrescriptionItem::query()
             ->whereHas('prescription', fn (Builder $q) => $q
                 ->where('user_id', $userId)
-                ->where('status', 'active'))
+                ->where('status', 'active')
+                ->when($excludePrescriptionId !== null, fn ($q2) => $q2->where('id', '!=', $excludePrescriptionId)))
             ->where('medication_name_normalized', $normalizedName)
             ->when($excludeItemId !== null, fn ($q) => $q->where('id', '!=', $excludeItemId))
             ->with('prescription')

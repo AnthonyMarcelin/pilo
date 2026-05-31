@@ -1,12 +1,18 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
 import PhaseEditor from '@/Components/PhaseEditor.vue'
-import { Head, Link, useForm } from '@inertiajs/vue3'
-import { ref } from 'vue'
+import { Head, Link, useForm, usePage } from '@inertiajs/vue3'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
-  draft: { type: Object, default: null },
+  draft:    { type: Object, default: null },
+  scanId:   { type: String, default: null },
+  imageUrl: { type: String, default: null },
 })
+
+const page = usePage()
+const flash = computed(() => page.props.flash ?? {})
+const showScanImage = ref(true)
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,6 +55,7 @@ const form = useForm({
   prescribed_at:   props.draft?.prescribed_at   ?? '',
   notes:           props.draft?.notes           ?? '',
   source_image:    null,
+  scan_id:         props.scanId ?? null,
   items:           rawItems.length > 0 ? rawItems : [emptyItem()],
 })
 
@@ -125,6 +132,33 @@ const intakeTypes = [
       </div>
     </div>
 
+    <!-- Flash : erreur scan -->
+    <div
+      v-if="flash.scan_error"
+      class="mx-4 mb-2 rounded-xl px-4 py-3 text-sm"
+      style="background-color:#fff7ed; border:1px solid #fed7aa; color:#9a3412;"
+    >
+      {{ flash.scan_error }}
+    </div>
+
+    <!-- Image du scan (affiché si imageUrl transmis par ScanController) -->
+    <div v-if="imageUrl" class="px-4 mb-2">
+      <button
+        type="button"
+        @click="showScanImage = !showScanImage"
+        class="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 transition-colors"
+      >
+        <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+        <span>{{ showScanImage ? 'Masquer l\'ordonnance' : 'Voir l\'ordonnance originale' }}</span>
+      </button>
+      <div v-if="showScanImage" class="mt-2 rounded-xl overflow-hidden border border-slate-100">
+        <img :src="imageUrl" alt="Ordonnance originale" class="w-full object-contain max-h-[50vh]" />
+      </div>
+    </div>
+
     <form @submit.prevent="submit" class="px-4 pb-32 space-y-4 mt-2">
 
       <!-- ── Ordonnance ────────────────────────────────────────────────── -->
@@ -162,8 +196,8 @@ const intakeTypes = [
           />
         </div>
 
-        <!-- Photo sans OCR -->
-        <div>
+        <!-- Photo sans OCR (masqué si image déjà fournie par scan) -->
+        <div v-if="!imageUrl">
           <label class="field-label">Photo de l'ordonnance (sans lecture IA)</label>
           <input
             ref="imageInput"
