@@ -69,19 +69,14 @@ def get_pipeline():
       Import attendu (PaddleOCR >= 3.4.1) :
         from paddleocr import PPStructureV3
 
-      Instanciation attendue :
+      Instanciation (API confirmée paddleocr >= 3.4.1) :
         PPStructureV3(
             device="cpu",
             vl_rec_backend="llama-cpp-server",
             vl_rec_server_url=LLAMA_SERVER_URL,
-            show_log=False,
         )
 
-      Si PPStructureV3 n'est pas disponible dans la version installée, essayer :
-        from paddleocr import PaddleOCR
-        PaddleOCR(use_doc_orientation_classify=True, use_doc_unwarping=True,
-                  vl_rec_backend="llama-cpp-server", ...)
-      et ouvrir un ticket avec la version exacte de paddleocr.
+      Note : show_log n'est pas un argument valide de PPStructureV3 dans cette version.
     """
     global _pipeline
     if _pipeline is None:
@@ -94,12 +89,11 @@ def get_pipeline():
                 device="cpu",
                 vl_rec_backend="llama-cpp-server",
                 vl_rec_server_url=LLAMA_SERVER_URL,
-                show_log=False,
             )
         except ImportError as exc:
             raise RuntimeError(
                 f"PPStructureV3 introuvable dans paddleocr installé. "
-                f"Vérifier que paddleocr >= 3.4.1 est installé et que l'API n'a pas changé. "
+                f"Vérifier que paddleocr >= 3.4.1 est installé. "
                 f"Erreur : {exc}"
             ) from exc
     return _pipeline

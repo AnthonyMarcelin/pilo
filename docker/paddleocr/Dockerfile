@@ -40,7 +40,7 @@ WORKDIR /app
 # Le modèle VLM (GGUF) est dans llama-server — ne pas tenter de le charger ici.
 RUN python -c "\
 from paddleocr import PPStructureV3; \
-PPStructureV3(device='cpu', show_log=False)" 2>/dev/null || true
+PPStructureV3(device='cpu')" 2>/dev/null || true
 
 COPY app.py .
 
