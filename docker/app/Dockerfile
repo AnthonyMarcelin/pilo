@@ -12,13 +12,19 @@ RUN apk add --no-cache \
     bash \
     autoconf \
     g++ \
-    make
+    make \
+    # ImageMagick + support HEIC/HEIF (conversion photos iPhone)
+    imagemagick \
+    imagemagick-dev \
+    libheif \
+    libheif-dev
 
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
  && docker-php-ext-install -j$(nproc) \
       pdo_sqlite bcmath mbstring zip gd pcntl intl
 
-RUN pecl install redis && docker-php-ext-enable redis
+RUN pecl install redis imagick \
+ && docker-php-ext-enable redis imagick
 
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
