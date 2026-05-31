@@ -1,6 +1,12 @@
 # docker-compose.yml — Pilo (référence)
-# Cible : serveur perso (Proxmox), CPU uniquement, 32 Go RAM.
+# Cible : serveur perso (Proxmox), CPU uniquement, RAM ~4-5 Go libres pendant un scan.
 # Adapter les chemins de build et versions au fil du scaffold (vérifier les versions via Context7).
+#
+# Profil "ai" (3 conteneurs, démarrés à la demande par pilo:ai-up) :
+#   llama-server  — inférence VLM PaddleOCR-VL 1.6 Q8_0  (~1.2-1.5 Go RAM)
+#   paddleocr-vl  — pipeline layout + FastAPI /ocr        (~0.4-0.6 Go RAM)
+#   ollama        — normalisation JSON Qwen2.5 1.5B        (~1.5-2.0 Go RAM)
+#   Total pic scan : ~3.1-4.1 Go. Mesurer docker stats au premier vrai scan.
 
 services:
   # --- Application Laravel (PHP-FPM) ---
@@ -71,24 +77,64 @@ services:
       - redis_data:/data
     restart: unless-stopped
 
-  # --- Service OCR : PaddleOCR-VL (image -> texte + layout), CPU ---
-  # Profil "ai" : NON démarré par défaut. Réveillé à la demande par le job de scan
-  # (RAM serrée — voir CLAUDE.md §3.1). Démarrage manuel : docker compose --profile ai up -d paddleocr
-  paddleocr:
+  # --- Sidecar VLM : llama.cpp server (inférence PaddleOCR-VL GGUF), CPU ---
+  # Profil "ai" : NON démarré par défaut. Réveillé par pilo:ai-up avec paddleocr-vl et ollama.
+  #
+  # Image : tag fixé à un hash stable (le tag flottant "server" a des builds b4xxx cassés
+  # sur CPU — issue llama.cpp #11304). Mettre à jour le hash après vérification.
+  # TODO : remplacer <PINNED_HASH> par un hash de build vérifié stable sur CPU,
+  #        ex. ghcr.io/ggml-org/llama.cpp:server-b4678 (vérifier sur ghcr.io/ggml-org/llama.cpp/tags).
+  #
+  # Modèle : PaddleOCR-VL 1.6 Q8_0 (primaire). Fallback : VL 1.5 Q8_0 (498 Mo, confirmé dispo).
+  # Avant le premier démarrage, placer le fichier GGUF dans le volume vl_models :
+  #   docker run --rm -v pilo_vl_models:/models alpine sh -c \
+  #     "wget -O /models/paddleocr-vl-1.6-q8_0.gguf <URL_HUGGINGFACE>"
+  # Vérifier l'existence du fichier Q8_0 sur HuggingFace (PaddlePaddle/PaddleOCR-VL-1.6-GGUF)
+  # avant le build. Si absent, utiliser VL 1.5 Q8_0 et adapter le --model path ci-dessous.
+  llama-server:
+    profiles: ["ai"]
+    image: ghcr.io/ggml-org/llama.cpp:server  # TODO: épingler sur un hash stable (voir commentaire)
+    expose:
+      - "8111"
+    volumes:
+      - vl_models:/models:ro
+    command: >
+      --model /models/paddleocr-vl-1.6-q8_0.gguf
+      --mmproj /models/paddleocr-vl-1.6-mmproj.gguf
+      --host 0.0.0.0
+      --port 8111
+      --ctx-size 4096
+      --threads 4
+    restart: unless-stopped
+    # CPU only : pas de section deploy/gpu.
+
+  # --- Service OCR : PaddleOCR-VL pipeline Python (layout + agrégation) ---
+  # Profil "ai" : NON démarré par défaut. Dépend de llama-server (sidecar VLM).
+  # Expose POST /ocr → JSON blocs ordonnés (contrat OCR_CONTRACT Option A).
+  # Voir docker/paddleocr/app.py pour le détail du contrat de réponse.
+  paddleocr-vl:
     profiles: ["ai"]
     build:
       context: ./docker/paddleocr
       dockerfile: Dockerfile
-    # Petit wrapper FastAPI exposant POST /ocr (multipart image -> JSON texte/layout).
     expose:
       - "8000"
+    environment:
+      # URL du sidecar llama-server (réseau Docker interne)
+      LLAMA_SERVER_URL: "http://llama-server:8111/v1"
     volumes:
       - paddle_models:/root/.paddleocr
+    depends_on:
+      - llama-server
     restart: unless-stopped
     # CPU only : pas de section deploy/gpu.
 
-  # --- Service LLM : Ollama (texte -> JSON structuré) ---
-  # Profil "ai" : NON démarré par défaut (idem paddleocr).
+  # --- Service LLM : Ollama (blocs OCR -> JSON structuré, normalisation) ---
+  # Profil "ai" : NON démarré par défaut (idem paddleocr-vl).
+  # Modèle : Qwen2.5 1.5B Q4_K_M avec constrained decoding (paramètre format=<schema>).
+  # IMPORTANT : toujours passer le schéma de l'ordonnance via format=, pas seulement dans le prompt.
+  # Après le 1er démarrage :
+  #   docker compose --profile ai exec ollama ollama pull qwen2.5:1.5b-instruct
   ollama:
     profiles: ["ai"]
     image: ollama/ollama:latest
@@ -97,8 +143,6 @@ services:
     volumes:
       - ollama_models:/root/.ollama
     restart: unless-stopped
-    # Après le 1er démarrage : docker compose exec ollama ollama pull qwen2.5:3b-instruct
-    # (3B par défaut sur serveur à RAM serrée ; 7B seulement si la mémoire le permet)
 
 volumes:
   db_data:
@@ -106,3 +150,7 @@ volumes:
   storage_images:
   paddle_models:
   ollama_models:
+  # Volume pour les fichiers GGUF de PaddleOCR-VL (partagé llama-server + paddleocr-vl).
+  # Contenu attendu : paddleocr-vl-1.6-q8_0.gguf + paddleocr-vl-1.6-mmproj.gguf.
+  # Fallback : paddleocr-vl-1.5-q8_0.gguf + mmproj correspondant (si 1.6 absent sur HuggingFace).
+  vl_models:

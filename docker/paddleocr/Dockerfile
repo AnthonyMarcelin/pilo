@@ -1,16 +1,17 @@
-# PaddleOCR — backend CPU standard (PP-OCRv4, non-VL)
+# PaddleOCR-VL — pipeline Python (wrapper FastAPI seulement)
 #
-# Choix : standard PaddleOCR (non-VL) plutôt que PaddleOCR-VL.
-# Raisons :
-#   - Think-Core/paddleocr-vl-cpu : requiert 16 GB+ RAM — disqualifié pour notre cible ~2-3 GB.
-#   - PaddleOCR-VL 1.6 + llama.cpp CPU : trop récent (mai 2026), RAM ~4-5 GB au pic, pas encore
-#     de Docker mature.
-#   - PP-OCRv4 (non-VL) : RAM ~900 MB-1.1 GB au pic, 1-3 s/image sur CPU 4-vCPU,
-#     multiples déploiements Docker+FastAPI en production, `lang='fr'` disponible.
+# Architecture deux conteneurs (décision architecturale, 2026-05-31) :
+#   - Ce conteneur : PaddleOCR Python >= 3.4.1, PP-DocLayoutV2 layout local,
+#     appelle llama-server via HTTP pour l'inférence VLM.
+#   - Sidecar llama-server requis — voir docker-compose.yml profil "ai".
 #
-# Upgrade path vers VL : quand PaddleOCR-VL-1.6-GGUF CPU Docker est stable (voir SPEC.md §8),
-# remplacer par : llama-server sidecar (port 8111) + vl_rec_backend="llama-cpp-server".
-# Le contrat API /ocr reste identique.
+# Modèle VL : PaddleOCR-VL 1.6 Q8_0 (primaire) ou 1.5 Q8_0 (fallback documenté).
+#   Les poids GGUF sont chargés par llama-server depuis le volume vl_models.
+#   Ce conteneur ne charge aucun modèle VLM lui-même.
+#
+# Pourquoi >= 3.4.1 : le backend llama-cpp-server était silencieusement cassé en
+#   3.4.0 (appels ignorés sans erreur). Ne jamais épingler sur "paddleocr" sans
+#   version minimum explicite.
 #
 # CPU only — pas de section deploy/gpu.
 
@@ -20,21 +21,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 libsm6 libxrender1 libxext6 libgomp1 \
  && rm -rf /var/lib/apt/lists/*
 
-# numpy<2.0 requis par paddlepaddle 2.6.x (incompatibilité numpy 2.x)
+# PaddleOCR >= 3.4.1 : requis pour le backend llama-cpp-server fonctionnel.
+# paddlepaddle-cpu : runtime CPU (pas de CUDA).
+# httpx : client HTTP async pour les appels vers llama-server.
 RUN pip install --no-cache-dir \
-    numpy==1.26.4 \
-    paddlepaddle==2.6.2 \
-    paddleocr==2.9.1 \
-    fastapi==0.115.6 \
+    "paddlepaddle==2.6.2" \
+    "paddleocr>=3.4.1" \
+    "fastapi==0.115.6" \
     "uvicorn[standard]==0.32.1" \
-    python-multipart==0.0.20 \
-    Pillow==11.1.0
+    "python-multipart==0.0.20" \
+    "Pillow==11.1.0" \
+    "httpx==0.27.0"
 
 WORKDIR /app
 
-# Pré-téléchargement des modèles PP-OCRv4 fr au moment du build
-# (évite un cold-start de 20-30 s au premier POST /ocr en production)
-RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_angle_cls=True, lang='fr', use_gpu=False, show_log=False)"
+# Pré-téléchargement du modèle de layout PP-DocLayoutV2 au moment du build
+# (détection de layout tourne localement dans ce conteneur, pas via llama-server).
+# Le modèle VLM (GGUF) est dans llama-server — ne pas tenter de le charger ici.
+RUN python -c "\
+from paddleocr import PPStructureV3; \
+PPStructureV3(device='cpu', show_log=False)" 2>/dev/null || true
 
 COPY app.py .
 
