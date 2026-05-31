@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\PasswordSetupController;
+use App\Http\Controllers\MedicationController;
 use App\Http\Controllers\MedicationNoteController;
 use App\Http\Controllers\PrescriptionController;
 use App\Http\Controllers\ProfileController;
@@ -47,7 +48,7 @@ Route::middleware(['auth', 'password.changed'])->group(function () {
     Route::get('/scans/{id}/form',          [ScanController::class, 'form'])   ->name('scans.form');
     Route::get('/scans/{id}/image',         [ScanController::class, 'image'])  ->name('scans.image');
 
-    Route::get('/medications', fn () => Inertia::render('Medications/Index'))
+    Route::get('/medications', [MedicationController::class, 'index'])
         ->name('medications.index');
 
     Route::post('/medications/{normalized}/note', [MedicationNoteController::class, 'upsert'])
