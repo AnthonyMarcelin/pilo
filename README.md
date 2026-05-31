@@ -21,7 +21,7 @@ Les données de santé ne quittent jamais le serveur. La lecture des ordonnances
 
 ## Architecture
 
-- **Backend** : Laravel (PHP), PostgreSQL, Redis (file d'attente).
+- **Backend** : Laravel (PHP), SQLite (WAL), Redis (file d'attente).
 - **Frontend** : Inertia.js + Vue 3 + Tailwind CSS, en PWA.
 - **IA locale (à la demande)** :
   - [PaddleOCR-VL](https://github.com/PaddlePaddle/PaddleOCR) — image d'ordonnance → texte + structure.
@@ -41,7 +41,7 @@ git clone <url-du-repo> pilo && cd pilo
 cp .env.example .env
 
 # Services de base (mode nominal, IA éteinte)
-docker compose up -d --build app web db redis queue
+docker compose up -d --build app web redis queue
 docker compose exec app php artisan key:generate
 docker compose exec app php artisan migrate --seed
 docker compose exec app php artisan pilo:import-bdpm   # référentiel médicaments (France)

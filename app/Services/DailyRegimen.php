@@ -42,6 +42,10 @@ final class DailyRegimen
         $fixed    = ['morning' => [], 'noon' => [], 'evening' => [], 'bedtime' => []];
         $asNeeded = [];
         $special  = [];
+        $alerts   = [];
+
+        $computeDates     = new ComputeDates();
+        $stockThreshold   = (int) config('pilo.stock_alert_days', 7);
 
         foreach ($items as $item) {
             if (! $item->start_date || $item->start_date->copy()->startOfDay()->gt($date)) {
@@ -50,6 +54,25 @@ final class DailyRegimen
 
             if ($item->isFixe()) {
                 $this->appendFixe($item, $date, $fixed);
+
+                // Alerte renouvellement : stock_end_date ≤ aujourd'hui + seuil
+                $stockEnd = $computeDates->stockEndDate($item);
+                if ($stockEnd !== null) {
+                    $stockEndDay = $stockEnd->copy()->startOfDay();
+                    $limitDay    = $date->copy()->addDays($stockThreshold);
+
+                    if ($stockEndDay->lte($limitDay)) {
+                        $daysLeft = $stockEndDay->gte($date)
+                            ? (int) $date->diffInDays($stockEndDay)
+                            : 0;
+
+                        $alerts[] = [
+                            'type'       => 'renewal',
+                            'medication' => $item->medication_name,
+                            'daysLeft'   => $daysLeft,
+                        ];
+                    }
+                }
             } elseif ($item->isSiBesoin()) {
                 $asNeeded[] = new ScheduledEntry(
                     prescriptionItemId: $item->id,
@@ -91,7 +114,7 @@ final class DailyRegimen
             fixed:    $fixed,
             asNeeded: $asNeeded,
             special:  $special,
-            alerts:   [],
+            alerts:   $alerts,
         );
     }
 
@@ -105,6 +128,7 @@ final class DailyRegimen
         $isTerminated    = ($resolved['phase'] === null);
         $phase           = $resolved['phase'];
         $nextChangeNote  = null;
+        $endDateLabel    = null;
 
         if (! $isTerminated) {
             $nextChangeNote = $this->buildNextChangeNote(
@@ -113,6 +137,13 @@ final class DailyRegimen
                 $phase->phase_order,
                 $resolved['cumulBefore'],
             );
+        } else {
+            // Dernier jour de prise = end_date exclusive - 1 jour
+            $endDate = $item->end_date ?? $item->start_date->copy()->addDays(
+                (int) $phases->sum('duration_days') ?: (int) ($item->duration_days ?? 0)
+            );
+            $lastDay      = $endDate->copy()->subDay();
+            $endDateLabel = 'terminé le ' . $lastDay->locale('fr')->translatedFormat('j F');
         }
 
         $entry = new ScheduledEntry(
@@ -129,12 +160,13 @@ final class DailyRegimen
             phaseDurationDays:  $phase?->duration_days,
             totalPhases:        $phases->count() ?: 1,
             nextChangeNote:     $nextChangeNote,
+            endDateLabel:       $endDateLabel,
         );
 
         // Les moments de référence pour déterminer dans quels slots insérer l'entrée :
         // - Item actif  → doses de la phase courante
         // - Item terminé → doses du premier palier (item.morning/noon/…) = dernière info connue
-        $moments = ['morning', 'noon', 'evening', 'bedtime'];
+        $moments  = ['morning', 'noon', 'evening', 'bedtime'];
         $addedAny = false;
 
         foreach ($moments as $moment) {
@@ -172,9 +204,9 @@ final class DailyRegimen
 
             if ($dayNumber <= $cumulAfter) {
                 return [
-                    'phase'      => $phase,
-                    'dayInPhase' => $dayNumber - $cumulBefore,
-                    'cumulBefore'=> $cumulBefore,
+                    'phase'       => $phase,
+                    'dayInPhase'  => $dayNumber - $cumulBefore,
+                    'cumulBefore' => $cumulBefore,
                 ];
             }
 

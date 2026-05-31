@@ -1,7 +1,7 @@
-FROM php:8.3-fpm-alpine
+FROM php:8.4-fpm-alpine
 
 RUN apk add --no-cache \
-    postgresql-dev \
+    sqlite-dev \
     oniguruma-dev \
     libzip-dev \
     freetype-dev \
@@ -9,15 +9,22 @@ RUN apk add --no-cache \
     libpng-dev \
     icu-dev \
     curl \
-    bash
+    bash \
+    autoconf \
+    g++ \
+    make
 
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
  && docker-php-ext-install -j$(nproc) \
-      pdo_pgsql pdo bcmath mbstring zip gd pcntl intl
+      pdo_sqlite bcmath mbstring zip gd pcntl intl
 
 RUN pecl install redis && docker-php-ext-enable redis
 
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Répertoire persistant pour SQLite (volume sqlite_data monté ici au runtime).
+# Initialisé avec la bonne propriété pour que www-data puisse écrire le fichier .sqlite.
+RUN mkdir -p /var/sqlite && chown www-data:www-data /var/sqlite
 
 WORKDIR /var/www/html
 

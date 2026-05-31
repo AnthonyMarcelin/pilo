@@ -21,8 +21,10 @@ final readonly class ScheduledEntry
         public ?int    $totalPhases,
         public ?string $nextChangeNote,
         // Champs si_besoin uniquement
-        public ?string $condition  = null,
-        public ?float  $maxPerDay  = null,
+        public ?string $condition    = null,
+        public ?float  $maxPerDay    = null,
+        // Label de fin de traitement pour items terminés : « terminé le 26 mai »
+        public ?string $endDateLabel = null,
     ) {}
 
     public function hasTapering(): bool

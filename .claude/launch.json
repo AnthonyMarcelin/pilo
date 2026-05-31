@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pilo-nginx",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "-d", "web"],
+      "port": 8080,
+      "autoPort": false
+    }
+  ]
+}

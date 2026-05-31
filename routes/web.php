@@ -2,7 +2,9 @@
 
 use App\Http\Controllers\Auth\PasswordSetupController;
 use App\Http\Controllers\MedicationNoteController;
+use App\Http\Controllers\PrescriptionController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\TodayController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -14,17 +16,19 @@ Route::get('/', function () {
 
 Route::middleware(['auth', 'password.changed'])->group(function () {
 
-    Route::get('/today', function () {
-        return Inertia::render('Today', [
-            'todayLabel' => now()->locale('fr')->isoFormat('dddd D MMMM YYYY'),
-        ]);
-    })->name('today');
+    Route::get('/today', TodayController::class)->name('today');
 
     Route::get('/prescriptions', fn () => Inertia::render('Prescriptions/Index'))
         ->name('prescriptions.index');
 
     Route::get('/prescriptions/create', fn () => Inertia::render('Prescriptions/Create'))
         ->name('prescriptions.create');
+
+    Route::get('/prescriptions/create/manual', [PrescriptionController::class, 'create'])
+        ->name('prescriptions.create.manual');
+
+    Route::post('/prescriptions', [PrescriptionController::class, 'store'])
+        ->name('prescriptions.store');
 
     Route::get('/medications', fn () => Inertia::render('Medications/Index'))
         ->name('medications.index');
