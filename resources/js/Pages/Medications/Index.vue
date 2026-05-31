@@ -128,13 +128,18 @@ async function saveNote(med) {
 
           <!-- Indication BDPM -->
           <div v-if="med.indication" class="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5">
+            <!-- Générique : mention contextualisée -->
+            <p v-if="med.is_generic" class="text-[11px] text-slate-400 italic mb-1">
+              Indication du médicament de référence ({{ med.originator_name }}),
+              dont {{ med.name }} est un générique.
+            </p>
             <p class="text-xs font-medium text-slate-500 mb-1">
               Indication officielle (source ANSM/BDPM)
-              <span v-if="med.originator_name" class="font-normal"> — {{ med.originator_name }}</span>
             </p>
             <p class="text-xs text-slate-600 leading-relaxed">{{ med.indication }}</p>
             <p class="mt-1.5 text-[11px] text-slate-400 italic">
-              Usage général — peut différer de votre prescription. Votre médecin fait foi.
+              Usage général de ce médicament — peut différer de votre prescription personnelle.
+              Votre médecin fait foi.
             </p>
           </div>
         </div>

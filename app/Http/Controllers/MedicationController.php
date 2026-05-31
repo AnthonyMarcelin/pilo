@@ -39,6 +39,7 @@ class MedicationController extends Controller
                 // Indication BDPM via cip_code (null si non renseigné)
                 $indication     = null;
                 $originatorName = null;
+                $isGeneric      = false;
                 $cipCode = $group->first(fn ($i) => $i->cip_code)?->cip_code;
                 if ($cipCode) {
                     $ref = MedicationReference::where('cip13', $cipCode)
@@ -46,16 +47,20 @@ class MedicationController extends Controller
                         ->first();
                     $indication     = $ref?->indication;
                     $originatorName = $ref?->name;
+                    // Générique = nom du médicament ≠ nom de l'originator dans le référentiel
+                    $isGeneric = $originatorName !== null
+                        && mb_strtolower(trim($originatorName)) !== mb_strtolower(trim($latest->medication_name));
                 }
 
                 return [
-                    'normalized'     => $normalized,
-                    'name'           => $latest->medication_name,
-                    'dosage'         => $latest->dosage,
-                    'is_active'      => $isActive,
-                    'note'           => $notes->get($normalized),
-                    'indication'     => $indication,
+                    'normalized'      => $normalized,
+                    'name'            => $latest->medication_name,
+                    'dosage'          => $latest->dosage,
+                    'is_active'       => $isActive,
+                    'note'            => $notes->get($normalized),
+                    'indication'      => $indication,
                     'originator_name' => $originatorName,
+                    'is_generic'      => $isGeneric,
                 ];
             })
             ->values();
