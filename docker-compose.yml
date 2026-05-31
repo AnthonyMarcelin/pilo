@@ -115,8 +115,8 @@ services:
     expose:
       - "8000"
     environment:
-      # URL du sidecar llama-server (réseau Docker interne)
-      LLAMA_SERVER_URL: "http://llama-server:8111/v1"
+      # URL BASE du sidecar llama-server — sans /v1 (PaddleOCRVL ajoute le chemin).
+      LLAMA_SERVER_URL: "http://llama-server:8111"
     volumes:
       - paddle_models:/root/.paddleocr
     depends_on:
