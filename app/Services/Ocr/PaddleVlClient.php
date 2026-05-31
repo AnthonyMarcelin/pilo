@@ -33,7 +33,7 @@ class PaddleVlClient
 
         try {
             $response = Http::timeout($this->timeoutSeconds)
-                ->attach('image', fopen($imagePath, 'r'), basename($imagePath))
+                ->attach('file', fopen($imagePath, 'r'), basename($imagePath))
                 ->post("{$this->baseUrl}/ocr");
         } catch (\Throwable $e) {
             throw new OcrException("PaddleVlClient : service indisponible — {$e->getMessage()}", 0, $e);
