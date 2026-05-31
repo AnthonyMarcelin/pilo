@@ -28,18 +28,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # paddleocr==3.4.1 installe paddlex[ocr-core] comme dépendance core.
-# paddlex[ocr]==3.4.1 ajoute les extras optionnels requis par PaddleOCRVL :
-#   vérifié dans la source v3.4.1 — PaddleOCRVLPipeline est décorée avec
-#   @pipeline_requires_extra("ocr"). Sans cet extra → DependencyError au predict().
+# paddlex[ocr]==3.4.3 : version minimum requise pour que le backend "llama-cpp-server"
+#   soit valide dans GenAIConfig (paddleX/inference/models/common/genai.py).
+#   - paddleX 3.4.1 : llama-cpp-server ABSENT de GenAIConfig → ValidationError.
+#   - paddleX 3.4.2+ : llama-cpp-server ajouté → fonctionne.
+#   Épinglé à 3.4.3 (dernier patch 3.4.x). paddleocr 3.4.1 accepte paddleX>=3.4.0,<3.5.0.
 #   Contenu [ocr] : opencv-contrib-python==4.10.0.84, scipy, shapely, scikit-learn,
 #   tokenizers>=0.19, safetensors>=0.7.0, lxml, sentencepiece, tiktoken, etc.
-#   libgl1 (apt, déjà installé) est la seule dépendance système supplémentaire.
 # paddlepaddle==3.2.1 : requis par paddleocr 3.x (via PaddleX 3.4.x). CPU-only.
 # httpx : client HTTP async (non requis par paddleocr, gardé pour compatibilité).
 RUN pip install --no-cache-dir \
     "paddlepaddle==3.2.1" \
     "paddleocr==3.4.1" \
-    "paddlex[ocr]==3.4.1" \
+    "paddlex[ocr]==3.4.3" \
     "fastapi==0.115.6" \
     "uvicorn[standard]==0.32.1" \
     "python-multipart==0.0.20" \
