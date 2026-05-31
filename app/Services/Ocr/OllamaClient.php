@@ -87,19 +87,32 @@ class OllamaClient
         }
 
         return <<<PROMPT
-Tu es un assistant pharmaceutique qui normalise des données d'ordonnances médicales.
-Tu reçois des blocs de texte extraits par OCR (ordonnés par position de lecture).
-Ta tâche : extraire les informations et les retourner au format JSON conforme au schéma.
+Tu es un assistant pharmaceutique. Tu normalises les blocs OCR d'une ordonnance vers un JSON structuré.
 
-RÈGLES STRICTES :
-- Ne jamais inventer : utilise null si une information est absente ou incertaine.
-- posologie_brute : recopier EXACTEMENT la posologie lue pour chaque médicament.
-- intake_type : "fixe" = prise horaire régulière, "si_besoin" = sur indication/PRN, "autre" = irrégulier.
-- Si phases est non vide pour un item, NE PAS remplir morning/noon/evening/bedtime de l'item.
-- Si posologie détaillée (paliers) suit une posologie générale pour un même médicament, les paliers priment.
-- Format de date : YYYY-MM-DD ou null. Quantités : décimaux (ex: 0.5, 1, 2.5).
+RÈGLES :
+1. NE JAMAIS INVENTER : utilise null si absent ou incertain.
+2. posologie_brute : COPIER VERBATIM le texte OCR de la posologie, sans résumer.
+3. intake_type : "fixe" si horaire régulier (matin/midi/soir/coucher), "si_besoin" si sur indication/PRN, "autre" sinon.
+4. morning/noon/evening/bedtime : nombre de prises (ex: 1, 2, 0.5). null si non spécifié ou si phases non vide.
+5. phases : remplir UNIQUEMENT si la posologie est dégressive (plusieurs paliers avec durées distinctes).
+   - Si phases non vide → morning/noon/evening/bedtime de l'item DOIVENT être null (les phases priment).
+   - Si dose simple ET schéma par paliers pour le MÊME médicament → les paliers priment, ignorer la dose simple.
+6. duration_days : durée totale en jours (nombre entier). qsp_days si "QSP X jours/mois".
+7. Date format : YYYY-MM-DD.
 
-BLOCS OCR (ordonnés, lus sur l'ordonnance) :
+EXEMPLE :
+Blocs : "Amoxicilline 500 mg / 1 gélule matin midi soir pendant 7 jours / Dr. Bernard / 15/03/2026"
+→ {"prescriber_name":"Dr. Bernard","prescribed_at":"2026-03-15","items":[{"medication_name":"Amoxicilline","dosage":"500 mg","intake_type":"fixe","morning":1,"noon":1,"evening":1,"bedtime":null,"condition":null,"max_per_day":null,"duration_days":7,"qsp_days":null,"posologie_brute":"1 gélule matin midi soir pendant 7 jours","phases":[]}]}
+
+EXEMPLE DÉGRESSIF :
+Blocs : "Prednisolone 20 mg / 2 cp matin 5j puis 1 cp matin 5j puis arrêt"
+→ {"prescriber_name":null,"prescribed_at":null,"items":[{"medication_name":"Prednisolone","dosage":"20 mg","intake_type":"fixe","morning":null,"noon":null,"evening":null,"bedtime":null,"condition":null,"max_per_day":null,"duration_days":null,"qsp_days":null,"posologie_brute":"2 cp matin 5j puis 1 cp matin 5j puis arrêt","phases":[{"duration_days":5,"morning":2,"noon":null,"evening":null,"bedtime":null},{"duration_days":5,"morning":1,"noon":null,"evening":null,"bedtime":null}]}]}
+
+EXEMPLE SI BESOIN :
+Blocs : "Paracétamol 1000 mg / si douleur, max 4 comprimés/jour"
+→ {"prescriber_name":null,"prescribed_at":null,"items":[{"medication_name":"Paracétamol","dosage":"1000 mg","intake_type":"si_besoin","morning":null,"noon":null,"evening":null,"bedtime":null,"condition":"si douleur","max_per_day":4,"duration_days":null,"qsp_days":null,"posologie_brute":"si douleur, max 4 comprimés/jour","phases":[]}]}
+
+BLOCS OCR DE L'ORDONNANCE (ordonnés par position de lecture) :
 {$blockText}
 PROMPT;
     }

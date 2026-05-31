@@ -3,10 +3,13 @@
 # Adapter les chemins de build et versions au fil du scaffold (vérifier les versions via Context7).
 #
 # Profil "ai" (3 conteneurs, démarrés à la demande par pilo:ai-up) :
-#   llama-server  — inférence VLM PaddleOCR-VL 1.6 Q8_0  (~1.2-1.5 Go RAM)
+#   llama-server  — inférence VLM PaddleOCR-VL 1.6 (fichier unique ~936 Mo + mmproj ~882 Mo)
+#                   RAM estimée : ~1.8-2.2 Go (modèle chargé complet, aucune variante quantizée)
 #   paddleocr-vl  — pipeline layout + FastAPI /ocr        (~0.4-0.6 Go RAM)
 #   ollama        — normalisation JSON Qwen2.5 1.5B        (~1.5-2.0 Go RAM)
-#   Total pic scan : ~3.1-4.1 Go. Mesurer docker stats au premier vrai scan.
+#   Total pic scan estimé : ~3.7-4.8 Go. MESURER docker stats au premier vrai scan.
+#   Note : les estimations initiales (~550-600 Mo, "Q8_0") étaient incorrectes.
+#   HuggingFace PaddlePaddle/PaddleOCR-VL-1.6-GGUF ne propose qu'un seul fichier GGUF non quantizé.
 
 services:
   # --- Application Laravel (PHP-FPM) ---
@@ -65,27 +68,34 @@ services:
   # --- Sidecar VLM : llama.cpp server (inférence PaddleOCR-VL GGUF), CPU ---
   # Profil "ai" : NON démarré par défaut. Réveillé par pilo:ai-up avec paddleocr-vl et ollama.
   #
-  # Image : tag fixé à un hash stable (le tag flottant "server" a des builds b4xxx cassés
-  # sur CPU — issue llama.cpp #11304). Mettre à jour le hash après vérification.
-  # TODO : remplacer <PINNED_HASH> par un hash de build vérifié stable sur CPU,
-  #        ex. ghcr.io/ggml-org/llama.cpp:server-b4678 (vérifier sur ghcr.io/ggml-org/llama.cpp/tags).
+  # Image CPU : ghcr.io/ggml-org/llama.cpp:server-intel (tag CPU-only officiel).
+  # NE PAS utiliser :server (inclut GPU, instable sur CPU).
+  # Épingler sur un digest stable si des régressions sont observées.
   #
-  # Modèle : PaddleOCR-VL 1.6 Q8_0 (primaire). Fallback : VL 1.5 Q8_0 (498 Mo, confirmé dispo).
-  # Avant le premier démarrage, placer le fichier GGUF dans le volume vl_models :
-  #   docker run --rm -v pilo_vl_models:/models alpine sh -c \
-  #     "wget -O /models/paddleocr-vl-1.6-q8_0.gguf <URL_HUGGINGFACE>"
-  # Vérifier l'existence du fichier Q8_0 sur HuggingFace (PaddlePaddle/PaddleOCR-VL-1.6-GGUF)
-  # avant le build. Si absent, utiliser VL 1.5 Q8_0 et adapter le --model path ci-dessous.
+  # PRÉREQUIS — télécharger les modèles VL dans le volume pilo_vl_models AVANT le démarrage :
+  #
+  #   # Modèle VL 1.6 (primaire, ~936 Mo + ~882 Mo mmproj = ~1.8 Go total sur disque)
+  #   docker run --rm -v pilo_vl_models:/models alpine sh -c "
+  #     wget -q -O /models/PaddleOCR-VL-1.6-GGUF.gguf \
+  #       'https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/main/PaddleOCR-VL-1.6-GGUF.gguf' &&
+  #     wget -q -O /models/PaddleOCR-VL-1.6-GGUF-mmproj.gguf \
+  #       'https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/main/PaddleOCR-VL-1.6-GGUF-mmproj.gguf'
+  #   "
+  #   # Fallback VL 1.5 (si VL 1.6 est indisponible) :
+  #   #   /models/PaddleOCR-VL-1.5.gguf + /models/PaddleOCR-VL-1.5-mmproj.gguf
+  #   #   (même taille ~936+882 Mo — PAS plus petit que 1.6 contrairement à ce qu'indiquait CLAUDE.md)
+  #
+  # RAM attendue llama-server au runtime : ~1.8-2.2 Go (modèle + mmproj + KV cache 4096 ctx).
   llama-server:
     profiles: ["ai"]
-    image: ghcr.io/ggml-org/llama.cpp:server  # TODO: épingler sur un hash stable (voir commentaire)
+    image: ghcr.io/ggml-org/llama.cpp:server-intel  # CPU-only build officiel
     expose:
       - "8111"
     volumes:
       - vl_models:/models:ro
     command: >
-      --model /models/paddleocr-vl-1.6-q8_0.gguf
-      --mmproj /models/paddleocr-vl-1.6-mmproj.gguf
+      --model /models/PaddleOCR-VL-1.6-GGUF.gguf
+      --mmproj /models/PaddleOCR-VL-1.6-GGUF-mmproj.gguf
       --host 0.0.0.0
       --port 8111
       --ctx-size 4096
@@ -134,9 +144,9 @@ volumes:
   storage_images:
   paddle_models:
   ollama_models:
-  # Volume pour les fichiers GGUF de PaddleOCR-VL (partagé llama-server + paddleocr-vl).
-  # Contenu attendu : paddleocr-vl-1.6-q8_0.gguf + paddleocr-vl-1.6-mmproj.gguf.
-  # Fallback : paddleocr-vl-1.5-q8_0.gguf + mmproj correspondant (si 1.6 absent sur HuggingFace).
+  # Volume pour les fichiers GGUF de PaddleOCR-VL.
+  # Contenu attendu : PaddleOCR-VL-1.6-GGUF.gguf + PaddleOCR-VL-1.6-GGUF-mmproj.gguf (~1.8 Go total).
+  # Fallback : PaddleOCR-VL-1.5.gguf + PaddleOCR-VL-1.5-mmproj.gguf (même taille, adapter --model).
   vl_models:
   # Volume persistant pour la base SQLite — montée dans app et queue sur /var/sqlite.
   # Survit à docker compose down/up. Supprimé uniquement par docker compose down -v.
