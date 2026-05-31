@@ -1,15 +1,14 @@
 # docker-compose.yml — Pilo (référence)
 # Cible : serveur perso (Proxmox), CPU uniquement, RAM ~4-5 Go libres pendant un scan.
-# Adapter les chemins de build et versions au fil du scaffold (vérifier les versions via Context7).
 #
-# Profil "ai" (3 conteneurs, démarrés à la demande par pilo:ai-up) :
-#   llama-server  — inférence VLM PaddleOCR-VL 1.6 (fichier unique ~936 Mo + mmproj ~882 Mo)
-#                   RAM estimée : ~1.8-2.2 Go (modèle chargé complet, aucune variante quantizée)
-#   paddleocr-vl  — pipeline layout + FastAPI /ocr        (~0.4-0.6 Go RAM)
-#   ollama        — normalisation JSON Qwen2.5 1.5B        (~1.5-2.0 Go RAM)
-#   Total pic scan estimé : ~3.7-4.8 Go. MESURER docker stats au premier vrai scan.
-#   Note : les estimations initiales (~550-600 Mo, "Q8_0") étaient incorrectes.
-#   HuggingFace PaddlePaddle/PaddleOCR-VL-1.6-GGUF ne propose qu'un seul fichier GGUF non quantizé.
+# Services IA (llama-server, paddleocr-vl, ollama) toujours démarrés.
+# Au repos, ils consomment ~900 Mo total — négligeable sur 5.8 Go libres.
+# Plus de profil "ai" ni de socket Docker dans le queue.
+#
+# Budget RAM estimé :
+#   llama-server (~1.8-2.2 Go) + paddleocr-vl (~0.4-0.6 Go) + ollama (~2.0 Go)
+#   + app+web+db+redis+queue (~1.0-1.5 Go)
+#   Total pic scan : ~3.7-4.8 Go. MESURER docker stats au premier vrai scan.
 
 services:
   # --- Application Laravel (PHP-FPM) ---
@@ -54,8 +53,6 @@ services:
       - ./:/var/www/html
       - storage_images:/var/www/html/storage/app/prescriptions
       - sqlite_data:/var/sqlite
-      # Socket Docker : nécessaire pour pilo:ai-up/down (usage auto-hébergé uniquement — ne pas exposer)
-      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
   # --- Cache + file d'attente ---
@@ -66,15 +63,16 @@ services:
     restart: unless-stopped
 
   # --- Sidecar VLM : llama.cpp server (inférence PaddleOCR-VL GGUF), CPU ---
-  # Profil "ai" : NON démarré par défaut. Réveillé par pilo:ai-up avec paddleocr-vl et ollama.
   #
   # Image CPU : ghcr.io/ggml-org/llama.cpp:server (tag sans suffixe = CPU-only).
   # Conventions de nommage du CI ggml-org/llama.cpp :
   #   :server           → CPU-only (tag "cpu" → suffixe vide dans le workflow)
   #   :server-intel     → Intel SYCL/GPU (oneAPI, SIGSEGV sur CPU sans GPU)
   #   :server-cuda      → NVIDIA CUDA, :server-vulkan → Vulkan, :server-rocm → AMD
-  # Épingler sur un digest ou tag versionné (:server-bXXXX) si une régression est
-  # observée sur le tag flottant :server.
+  #
+  # Pour épingler sur la version déployée sur la VM, récupérer le digest :
+  #   docker inspect ghcr.io/ggml-org/llama.cpp:server --format '{{index .RepoDigests 0}}'
+  # puis remplacer "image:" par "image: ghcr.io/ggml-org/llama.cpp@sha256:XXXXX"
   #
   # PRÉREQUIS — télécharger les modèles VL dans le volume pilo_vl_models AVANT le démarrage :
   #
@@ -91,7 +89,6 @@ services:
   #
   # RAM attendue llama-server au runtime : ~1.8-2.2 Go (modèle + mmproj + KV cache 4096 ctx).
   llama-server:
-    profiles: ["ai"]
     image: ghcr.io/ggml-org/llama.cpp:server  # CPU-only (sans suffixe GPU)
     expose:
       - "8111"
@@ -108,11 +105,10 @@ services:
     # CPU only : pas de section deploy/gpu.
 
   # --- Service OCR : PaddleOCR-VL pipeline Python (layout + agrégation) ---
-  # Profil "ai" : NON démarré par défaut. Dépend de llama-server (sidecar VLM).
-  # Expose POST /ocr → JSON blocs ordonnés (contrat OCR_CONTRACT Option A).
+  # Dépend de llama-server (sidecar VLM).
+  # Expose POST /ocr → JSON blocs ordonnés.
   # Voir docker/paddleocr/app.py pour le détail du contrat de réponse.
   paddleocr-vl:
-    profiles: ["ai"]
     build:
       context: ./docker/paddleocr
       dockerfile: Dockerfile
@@ -129,14 +125,12 @@ services:
     # CPU only : pas de section deploy/gpu.
 
   # --- Service LLM : Ollama (blocs OCR -> JSON structuré, normalisation) ---
-  # Profil "ai" : NON démarré par défaut (idem paddleocr-vl).
-  # Modèle : Qwen2.5 1.5B Q4_K_M avec constrained decoding (paramètre format=<schema>).
+  # Modèle : Qwen2.5 3B instruct avec constrained decoding (paramètre format=<schema>).
   # IMPORTANT : toujours passer le schéma de l'ordonnance via format=, pas seulement dans le prompt.
   # Après le 1er démarrage :
-  #   docker compose --profile ai exec ollama ollama pull qwen2.5:1.5b-instruct
+  #   docker compose exec ollama ollama pull qwen2.5:3b-instruct
   ollama:
-    profiles: ["ai"]
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.24.0
     expose:
       - "11434"
     volumes:
