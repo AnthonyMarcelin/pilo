@@ -22,6 +22,8 @@ function isActive(path) {
     </main>
 
     <nav
+      role="navigation"
+      aria-label="Navigation principale"
       class="fixed bottom-0 inset-x-0 z-10 bg-white border-t border-slate-100"
       style="padding-bottom: env(safe-area-inset-bottom, 0px)"
     >
@@ -30,7 +32,7 @@ function isActive(path) {
         <Link
           href="/today"
           class="tap-target flex flex-col items-center justify-center gap-0.5 flex-1 text-xs font-medium transition-colors duration-150"
-          :class="isActive('/today') ? 'text-slate-800' : 'text-slate-400 hover:text-slate-600'"
+          :class="isActive('/today') ? 'text-slate-800' : 'text-slate-500 hover:text-slate-700'"
         >
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2"/>
@@ -44,7 +46,7 @@ function isActive(path) {
         <Link
           href="/medications"
           class="tap-target flex flex-col items-center justify-center gap-0.5 flex-1 text-xs font-medium transition-colors duration-150"
-          :class="isActive('/medications') ? 'text-slate-800' : 'text-slate-400 hover:text-slate-600'"
+          :class="isActive('/medications') ? 'text-slate-800' : 'text-slate-500 hover:text-slate-700'"
         >
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <rect x="7" y="2" width="10" height="20" rx="5" ry="5"/>
@@ -56,7 +58,7 @@ function isActive(path) {
         <Link
           href="/prescriptions/create"
           class="tap-target flex flex-col items-center justify-center gap-0.5 flex-1 text-xs font-medium transition-colors duration-150"
-          :class="isActive('/prescriptions/create') ? 'text-slate-700' : 'text-slate-400 hover:text-slate-600'"
+          :class="isActive('/prescriptions/create') ? 'text-slate-700' : 'text-slate-500 hover:text-slate-700'"
         >
           <div class="flex items-center justify-center w-8 h-8 rounded-full bg-slate-800 text-white transition-colors duration-150">
             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
@@ -70,7 +72,7 @@ function isActive(path) {
         <Link
           href="/prescriptions"
           class="tap-target flex flex-col items-center justify-center gap-0.5 flex-1 text-xs font-medium transition-colors duration-150"
-          :class="isActive('/prescriptions') ? 'text-slate-800' : 'text-slate-400 hover:text-slate-600'"
+          :class="isActive('/prescriptions') ? 'text-slate-800' : 'text-slate-500 hover:text-slate-700'"
         >
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>

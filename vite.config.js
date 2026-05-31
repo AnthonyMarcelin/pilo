@@ -28,14 +28,41 @@ export default defineConfig({
                 background_color: '#ffffff',
                 display: 'standalone',
                 orientation: 'portrait',
-                start_url: '/',
+                start_url: '/today',
+                id: '/today',
+                scope: '/',
                 icons: [
-                    { src: '/icons/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-                    { src: '/icons/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+                    { src: '/icons/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+                    { src: '/icons/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+                    { src: '/icons/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
                 ],
             },
             workbox: {
-                globPatterns: [],
+                // Précache les assets statiques générés par Vite (JS, CSS, images, fonts)
+                globPatterns: ['**/*.{js,css,ico,png,svg,woff2}'],
+                navigateFallback: null,
+                runtimeCaching: [
+                    {
+                        // Consultation hors-ligne : pages HTML (navigations directes)
+                        urlPattern: ({ request }) => request.mode === 'navigate',
+                        handler: 'NetworkFirst',
+                        options: {
+                            cacheName: 'pilo-pages',
+                            networkTimeoutSeconds: 5,
+                            expiration: { maxEntries: 10, maxAgeSeconds: 86400 },
+                            cacheableResponse: { statuses: [200] },
+                        },
+                    },
+                    {
+                        urlPattern: /^https:\/\/fonts\.bunny\.net\/.*/i,
+                        handler: 'CacheFirst',
+                        options: {
+                            cacheName: 'pilo-fonts',
+                            expiration: { maxEntries: 10, maxAgeSeconds: 31536000 },
+                            cacheableResponse: { statuses: [0, 200] },
+                        },
+                    },
+                ],
             },
             devOptions: {
                 enabled: false,

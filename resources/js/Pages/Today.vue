@@ -171,7 +171,7 @@ function alertMessage(alert) {
 
                 <!-- Label de phase dégressive (item actif) -->
                 <div v-if="!entry.isTerminated && entry.hasTapering && entry.dayInPhase" class="flex flex-col gap-0.5">
-                  <span class="text-xs text-slate-400">
+                  <span class="text-xs text-slate-500">
                     jour {{ entry.dayInPhase }}/{{ entry.phaseDurationDays }}
                   </span>
                   <span v-if="entry.nextChangeNote" class="text-xs" :style="{ color: moment.heading }">
@@ -180,12 +180,12 @@ function alertMessage(alert) {
                 </div>
 
                 <!-- Label terminé -->
-                <span v-if="entry.isTerminated" class="text-xs text-slate-400">
+                <span v-if="entry.isTerminated" class="text-xs text-slate-500">
                   {{ entry.endDateLabel }} — à renouveler ?
                 </span>
               </div>
             </template>
-            <p v-else class="text-sm text-slate-400 italic">Aucun médicament</p>
+            <p v-else class="text-sm text-slate-500 italic">Aucun médicament</p>
           </div>
         </section>
       </div>

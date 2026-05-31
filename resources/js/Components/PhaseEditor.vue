@@ -70,7 +70,7 @@ function phaseError(phaseIndex, field) {
       <p class="field-label">Doses quotidiennes</p>
       <div class="grid grid-cols-4 gap-2">
         <div v-for="m in moments" :key="m.key">
-          <label class="block text-xs text-slate-400 text-center mb-1">{{ m.label }}</label>
+          <label class="block text-xs text-slate-500 text-center mb-1 truncate">{{ m.label }}</label>
           <input
             type="number"
             step="0.5"
@@ -152,7 +152,7 @@ function phaseError(phaseIndex, field) {
           <p class="field-label">Doses</p>
           <div class="grid grid-cols-4 gap-2">
             <div v-for="m in moments" :key="m.key">
-              <label class="block text-xs text-slate-400 text-center mb-1">{{ m.label }}</label>
+              <label class="block text-xs text-slate-500 text-center mb-1 truncate">{{ m.label }}</label>
               <input
                 type="number"
                 step="0.5"
