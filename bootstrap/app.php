@@ -12,6 +12,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Reverse proxy (Traefik, Nginx, Caddy…) — nécessaire pour que Laravel
+        // génère des liens https et lise correctement l'IP client.
+        // Configurer TRUSTED_PROXIES dans .env ('*' ou IP/CIDR du proxy).
+        $trustedProxies = env('TRUSTED_PROXIES');
+        if ($trustedProxies) {
+            $middleware->trustProxies(at: $trustedProxies);
+        }
+
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,
             \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,

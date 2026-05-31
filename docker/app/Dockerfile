@@ -1,3 +1,20 @@
+# ── Stage 1 : Node.js — build des assets Vite / PWA ────────────────────────
+FROM node:20-alpine AS node-builder
+WORKDIR /build
+
+# Dépendances npm séparées pour profiter du cache Docker
+COPY package.json package-lock.json ./
+RUN npm ci --quiet
+
+# Sources Vite (config + ressources + icônes PWA)
+COPY vite.config.js postcss.config.js tailwind.config.js jsconfig.json ./
+COPY resources/ resources/
+COPY public/ public/
+
+RUN npm run build
+# Résultat : /build/public/build/ (assets hashés + SW workbox + manifest PWA)
+
+# ── Stage 2 : PHP application ────────────────────────────────────────────────
 FROM php:8.4-fpm-alpine
 
 RUN apk add --no-cache \
@@ -13,7 +30,7 @@ RUN apk add --no-cache \
     autoconf \
     g++ \
     make \
-    # ImageMagick + support HEIC/HEIF (conversion photos iPhone)
+    # ImageMagick + HEIC/HEIF (photos iPhone — libheif requis pour le delegate HEIC)
     imagemagick \
     imagemagick-dev \
     libheif \
@@ -28,8 +45,12 @@ RUN pecl install redis imagick \
 
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Répertoire persistant pour SQLite (volume sqlite_data monté ici au runtime).
-# Initialisé avec la bonne propriété pour que www-data puisse écrire le fichier .sqlite.
+# Assets Vite buildés (stage node-builder) stockés HORS de /var/www/html
+# pour ne PAS être écrasés par le volume ./:/var/www/html du compose.
+# L'entrypoint les copie dans public/build/ à chaque démarrage.
+COPY --from=node-builder /build/public/build /pilo_build
+
+# Répertoire persistant pour SQLite (volume sqlite_data monté ici au runtime)
 RUN mkdir -p /var/sqlite && chown www-data:www-data /var/sqlite
 
 WORKDIR /var/www/html
@@ -44,5 +65,10 @@ RUN composer dump-autoload --optimize \
  && chown -R www-data:www-data storage bootstrap/cache \
  && chmod -R 775 storage bootstrap/cache
 
+# Entrypoint : gère composer/assets/SQLite/permissions avant de lancer le process
+COPY docker/app/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 9000
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["php-fpm"]
