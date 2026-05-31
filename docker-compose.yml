@@ -68,9 +68,13 @@ services:
   # --- Sidecar VLM : llama.cpp server (inférence PaddleOCR-VL GGUF), CPU ---
   # Profil "ai" : NON démarré par défaut. Réveillé par pilo:ai-up avec paddleocr-vl et ollama.
   #
-  # Image CPU : ghcr.io/ggml-org/llama.cpp:server-intel (tag CPU-only officiel).
-  # NE PAS utiliser :server (inclut GPU, instable sur CPU).
-  # Épingler sur un digest stable si des régressions sont observées.
+  # Image CPU : ghcr.io/ggml-org/llama.cpp:server (tag sans suffixe = CPU-only).
+  # Conventions de nommage du CI ggml-org/llama.cpp :
+  #   :server           → CPU-only (tag "cpu" → suffixe vide dans le workflow)
+  #   :server-intel     → Intel SYCL/GPU (oneAPI, SIGSEGV sur CPU sans GPU)
+  #   :server-cuda      → NVIDIA CUDA, :server-vulkan → Vulkan, :server-rocm → AMD
+  # Épingler sur un digest ou tag versionné (:server-bXXXX) si une régression est
+  # observée sur le tag flottant :server.
   #
   # PRÉREQUIS — télécharger les modèles VL dans le volume pilo_vl_models AVANT le démarrage :
   #
@@ -88,7 +92,7 @@ services:
   # RAM attendue llama-server au runtime : ~1.8-2.2 Go (modèle + mmproj + KV cache 4096 ctx).
   llama-server:
     profiles: ["ai"]
-    image: ghcr.io/ggml-org/llama.cpp:server-intel  # CPU-only build officiel
+    image: ghcr.io/ggml-org/llama.cpp:server  # CPU-only (sans suffixe GPU)
     expose:
       - "8111"
     volumes:
