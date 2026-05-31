@@ -38,12 +38,18 @@ async function onImageSelected(e) {
   <AppLayout>
     <Head title="Ajouter — Pilo" />
 
-    <!-- Input fichier caché (capture=environment → caméra iOS en priorité) -->
+    <!--
+      Input fichier caché — PAS d'attribut capture.
+      Sur iOS/Safari, sans capture, l'OS affiche le menu natif :
+        • Photothèque
+        • Prendre une photo ou vidéo
+        • Parcourir (Fichiers / iCloud Drive)
+      accept inclut .heic pour les photos iPhone non converties en JPEG.
+    -->
     <input
       ref="scanInput"
       type="file"
-      accept="image/*"
-      capture="environment"
+      accept="image/*,.heic,.heif"
       class="hidden"
       @change="onImageSelected"
     />
