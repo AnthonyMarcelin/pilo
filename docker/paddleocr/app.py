@@ -2,9 +2,15 @@
 PaddleOCR-VL FastAPI service — pipeline deux conteneurs.
 
 Architecture :
-  Ce service (paddleocr-vl) appelle llama-server (sidecar) pour l'inférence VLM.
-  llama-server charge PaddleOCR-VL 1.6 Q8_0 (ou 1.5 Q8_0 en fallback) depuis le volume vl_models.
-  Ce conteneur gère la détection de layout (PP-DocLayoutV2, local) et l'agrégation des blocs.
+  Ce service (paddleocr-vl) utilise PaddleOCRVL (paddleocr==3.4.1) qui appelle
+  llama-server (sidecar) pour l'inférence VLM via HTTP (API OpenAI-compatible).
+  llama-server charge PaddleOCR-VL 1.6 GGUF depuis le volume vl_models.
+  Ce conteneur gère la détection de layout (PP-DocLayoutV2, local) et l'agrégation.
+
+  Classe utilisée : PaddleOCRVL (PAS PPStructureV3).
+    PPStructureV3 = pipeline OCR traditionnel, sans backend VLM externe.
+    PaddleOCRVL   = layout local + inférence VLM déportée (llama-cpp-server).
+  Les arguments vl_rec_backend / vl_rec_server_url n'existent que sur PaddleOCRVL.
 
 Contrat API POST /ocr :
   Retourne des blocs ordonnés préservant la spatialité de l'ordonnance.
@@ -34,23 +40,24 @@ Contrat API POST /ocr :
     "markdown_preview": "..."
   }
 
-Note PaddleOCR-VL : le VLM est entraîné sur 5 tâches fixes (OCR, Table Recognition,
-Formula Recognition, Chart Recognition, Seal Recognition). Il ne répond PAS à des
-prompts d'extraction personnalisés. L'extraction sémantique (nom médicament, dosage…)
-est faite en aval par Ollama, pas ici.
+Structure interne PaddleOCRVL.predict() (vérifiée sur v3.4.1 source) :
+  Retourne list[ResultObject]. Le contenu utile est dans :
+    results[0].json["parsing_res_list"]  → list[dict]
+  Chaque dict : block_id, block_order, block_label, block_content, block_bbox.
+  block_bbox est un np.ndarray — converti en list Python avant sérialisation.
 """
 
-import io
 import os
 import tempfile
 from pathlib import Path
 
+import numpy as np
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 
-# URL du sidecar llama-server (OpenAI-compatible, port 8111 par défaut).
+# URL BASE du sidecar llama-server (sans /v1 — PaddleOCRVL ajoute le chemin).
 # La variable d'env LLAMA_SERVER_URL permet de surcharger en dev/test.
-LLAMA_SERVER_URL = os.environ.get("LLAMA_SERVER_URL", "http://llama-server:8111/v1")
+LLAMA_SERVER_URL = os.environ.get("LLAMA_SERVER_URL", "http://llama-server:8111")
 
 app = FastAPI(title="PaddleOCR-VL service", version="1.0.0")
 
@@ -59,49 +66,35 @@ _pipeline = None
 
 def get_pipeline():
     """
-    Initialise et retourne le pipeline PaddleOCR-VL (lazy, une seule fois par process).
+    Initialise et retourne le pipeline PaddleOCRVL (lazy, une seule fois par process).
 
-    TODO — vérifier lors du premier run :
-      L'API exacte de PPStructureV3 avec vl_rec_backend="llama-cpp-server" dépend
-      de la version paddleocr >= 3.4.1. Si l'import ou les paramètres changent entre
-      versions mineures, ajuster ici.
+    API vérifiée contre la source paddleocr==3.4.1 (GitHub tag v3.4.1) :
+      Classe   : PaddleOCRVL (paddleocr/_pipelines/paddleocr_vl.py)
+      Args VL  : vl_rec_backend (str), vl_rec_server_url (str, URL base sans /v1)
+      device   : "cpu" | "gpu:0" | ... (via **kwargs → PaddleXPipelineWrapper)
+      Appel    : pipeline.predict(path) → list[ResultObject]
+      Résultat : results[0].json["parsing_res_list"] → list de blocs
 
-      Import attendu (PaddleOCR >= 3.4.1) :
-        from paddleocr import PPStructureV3
-
-      Instanciation (API confirmée paddleocr >= 3.4.1) :
-        PPStructureV3(
-            device="cpu",
-            vl_rec_backend="llama-cpp-server",
-            vl_rec_server_url=LLAMA_SERVER_URL,
-        )
-
-      Note : show_log n'est pas un argument valide de PPStructureV3 dans cette version.
+    vl_rec_backend valeurs valides :
+      "native" | "llama-cpp-server" | "vllm-server" | "sglang-server" |
+      "fastdeploy-server" | "mlx-vlm-server"
     """
     global _pipeline
     if _pipeline is None:
-        # TODO: confirmer l'API exacte sur la version installée (paddleocr >= 3.4.1).
-        # Le import et les paramètres ci-dessous correspondent à la documentation
-        # PaddleOCR 3.4.x pour le backend llama-cpp-server.
-        try:
-            from paddleocr import PPStructureV3  # type: ignore[import]
-            _pipeline = PPStructureV3(
-                device="cpu",
-                vl_rec_backend="llama-cpp-server",
-                vl_rec_server_url=LLAMA_SERVER_URL,
-            )
-        except ImportError as exc:
-            raise RuntimeError(
-                f"PPStructureV3 introuvable dans paddleocr installé. "
-                f"Vérifier que paddleocr >= 3.4.1 est installé. "
-                f"Erreur : {exc}"
-            ) from exc
+        from paddleocr import PaddleOCRVL  # type: ignore[import]
+        _pipeline = PaddleOCRVL(
+            vl_rec_backend="llama-cpp-server",
+            vl_rec_server_url=LLAMA_SERVER_URL,
+            device="cpu",
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+        )
     return _pipeline
 
 
 @app.get("/health")
 def health():
-    """Health-check utilisé par le worker de scan (pilo:ai-up attend ce 200)."""
+    """Health-check — retourne 200 quand le service est démarré."""
     return {"status": "ok", "llama_server_url": LLAMA_SERVER_URL}
 
 
@@ -125,64 +118,45 @@ async def run_ocr(file: UploadFile = File(...)):
     data = await file.read()
     original_filename = file.filename or "ordonnance.jpg"
 
-    # tmp_path initialisé à None : le guard "if tmp_path is not None" dans le finally
-    # couvre le cas où NamedTemporaryFile lui-même échouerait.
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            tmp_path = tmp.name  # assigné avant write() — garantit le cleanup si write échoue
+            tmp_path = tmp.name
             tmp.write(data)
 
         pipeline = get_pipeline()
 
-        # TODO: vérifier le type de retour exact de PPStructureV3.__call__ sur la
-        # version installée. Les attributs ci-dessous (block_order, block_label,
-        # block_bbox, block_content) correspondent à la structure documentée dans
-        # PaddleOCR >= 3.4. Si les noms d'attributs diffèrent, adapter les accès.
-        result = pipeline(tmp_path)
+        # predict() retourne list[ResultObject], un élément par image.
+        # Pour une image unique, on prend results[0].
+        results = pipeline.predict(tmp_path)
+
     finally:
         if tmp_path is not None:
             Path(tmp_path).unlink(missing_ok=True)
 
-    # --- Normalisation du résultat en contrat API ---
-    # TODO: adapter si la structure de retour de PPStructureV3 diffère.
-    # Attendu : result est un dict avec une clé "blocks" (liste) ou similaire.
-    # En cas de doute, logger `type(result)` et `result` au premier run.
+    # --- Extraction des blocs depuis parsing_res_list ---
+    # Structure vérifiée : results[0].json["parsing_res_list"] → list[dict]
+    # Clés : block_id, block_order, block_label, block_content, block_bbox (np.ndarray)
 
     blocks = []
     markdown_lines = []
 
-    raw_blocks = []
-    if isinstance(result, dict):
-        # Format attendu : {"blocks": [...], ...}
-        raw_blocks = result.get("blocks") or result.get("layout_result") or []
-    elif isinstance(result, list):
-        # Certaines versions retournent directement une liste de blocs
-        raw_blocks = result
+    raw_blocks: list = []
+    if results:
+        raw_blocks = results[0].json.get("parsing_res_list", [])
 
     for idx, blk in enumerate(raw_blocks, start=1):
-        # Extraction défensive — les noms exacts dépendent de la version paddleocr.
-        # Priorité : attributs objet > clés dict.
-        def _get(obj, *keys):
-            for k in keys:
-                try:
-                    v = getattr(obj, k, None)
-                    if v is not None:
-                        return v
-                except Exception:
-                    pass
-                if isinstance(obj, dict) and k in obj:
-                    return obj[k]
-            return None
+        block_order   = blk.get("block_order",   idx)
+        block_label   = str(blk.get("block_label", "text")).lower()
+        block_content = blk.get("block_content", "") or ""
+        block_bbox    = blk.get("block_bbox", [])
 
-        block_order = _get(blk, "block_order", "order", "index") or idx
-        block_label = str(_get(blk, "block_label", "block_type", "type") or "text").lower()
-        block_content = _get(blk, "block_content", "content", "text") or ""
-        block_bbox = _get(blk, "block_bbox", "bbox", "box") or []
+        # block_bbox est un np.ndarray — convertir en list Python avant tout traitement.
+        if isinstance(block_bbox, np.ndarray):
+            block_bbox = block_bbox.tolist()
 
-        # Normaliser block_bbox en [x1, y1, x2, y2]
+        # Normaliser en [x1, y1, x2, y2] si format 2D [[x1,y1],[x2,y1],[x2,y2],[x1,y2]]
         if block_bbox and not isinstance(block_bbox[0], (int, float)):
-            # Format [[x1,y1],[x2,y1],[x2,y2],[x1,y2]] → [x1, y1, x2, y2]
             try:
                 xs = [pt[0] for pt in block_bbox]
                 ys = [pt[1] for pt in block_bbox]
@@ -191,14 +165,13 @@ async def run_ocr(file: UploadFile = File(...)):
                 block_bbox = []
 
         blocks.append({
-            "block_id": idx,
-            "block_order": block_order,
-            "block_label": block_label,
+            "block_id":      idx,
+            "block_order":   block_order,
+            "block_label":   block_label,
             "block_content": block_content,
-            "block_bbox": [round(float(v), 1) for v in block_bbox] if block_bbox else [],
+            "block_bbox":    [round(float(v), 1) for v in block_bbox] if block_bbox else [],
         })
 
-        # Markdown preview (usage debug / formulaire de validation)
         if block_label == "table":
             markdown_lines.append(block_content)
         else:
@@ -208,7 +181,7 @@ async def run_ocr(file: UploadFile = File(...)):
     blocks.sort(key=lambda b: b["block_order"])
 
     return JSONResponse({
-        "filename": original_filename,
-        "blocks": blocks,
+        "filename":         original_filename,
+        "blocks":           blocks,
         "markdown_preview": "\n\n".join(markdown_lines),
     })
