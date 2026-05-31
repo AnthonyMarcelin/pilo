@@ -12,11 +12,11 @@ class MedicationReferenceSeeder extends Seeder
         // Phase 6 pilo:import-bdpm fera un updateOrCreate identique — ces données seront remplacées par l'import BDPM complet.
 
         // CIS 68416845 — LEVOTHYROX 100 µg (originator Levothyroxine sodique)
-        // Phase 6 pilo:import-bdpm fera un updateOrCreate identique — ces données seront remplacées par l'import BDPM complet.
+        // cip13 renseigné pour que le seed puisse afficher l'encart BDPM en dev.
         MedicationReference::updateOrCreate(
             ['cis' => '68416845'],
             [
-                'cip13'         => null,
+                'cip13'         => '3400935266486',
                 'name'          => 'LEVOTHYROX 100 µg, comprimé sécable',
                 'units_per_box' => 30,
                 'indication'    => "le traitement des hypothyroïdies, le traitement des circonstances, associées ou non à une hypothyroïdie, où l'on désire freiner la TSH.",
@@ -84,11 +84,24 @@ class MedicationReferenceSeeder extends Seeder
         );
 
         // CIS 60160707 — DEROXAT 20 mg (originator Paroxétine)
-        // Phase 6 pilo:import-bdpm fera un updateOrCreate identique — ces données seront remplacées par l'import BDPM complet.
         MedicationReference::updateOrCreate(
             ['cis' => '60160707'],
             [
                 'cip13'         => null,
+                'name'          => 'DEROXAT 20 mg, comprimé pelliculé sécable',
+                'units_per_box' => 30,
+                'indication'    => "les épisodes dépressifs majeurs (c'est-à-dire caractérisés), les troubles obsessionnels compulsifs, la prévention des attaques de paniques avec ou sans agoraphobie, le trouble de l'anxiété généralisée, l'état de stress post-traumatique.",
+            ]
+        );
+
+        // ── Entrée générique seed — Paroxétine 20 mg (générique de DEROXAT) ──
+        // Simule ce que pilo:import-bdpm crée via CIS_GENER :
+        //   CIP générique → CIS originator (60160707) → name + indication de DEROXAT.
+        // cis '99000001' est un identifiant fictif de dev — remplacé par l'import BDPM réel.
+        MedicationReference::updateOrCreate(
+            ['cis' => '99000001'],
+            [
+                'cip13'         => '3400937890123',
                 'name'          => 'DEROXAT 20 mg, comprimé pelliculé sécable',
                 'units_per_box' => 30,
                 'indication'    => "les épisodes dépressifs majeurs (c'est-à-dire caractérisés), les troubles obsessionnels compulsifs, la prévention des attaques de paniques avec ou sans agoraphobie, le trouble de l'anxiété généralisée, l'état de stress post-traumatique.",

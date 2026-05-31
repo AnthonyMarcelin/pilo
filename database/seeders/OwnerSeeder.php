@@ -19,7 +19,7 @@ class OwnerSeeder extends Seeder
                 'name'                 => 'Propriétaire',
                 'password'             => Hash::make($password),
                 'role'                 => 'owner',
-                'must_change_password' => true,
+                'must_change_password' => false, // true en prod premier démarrage, false pour le dev/reseed
                 'email_verified_at'    => now(),
             ]
         );

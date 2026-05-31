@@ -46,7 +46,8 @@ class PrescriptionSeeder extends Seeder
             'end_date'                 => Carbon::now()->subDays(10)->addDays(365)->toDateString(),
             'boxes_count'              => 1,
             'units_per_box'            => 15,
-            'cip_code'                 => null,
+            // CIP originator — affiche l'encart BDPM "Indication officielle" sans mention générique
+            'cip_code'                 => '3400935266486',
         ]);
 
         PrescriptionItemPhase::create([
@@ -165,6 +166,9 @@ class PrescriptionSeeder extends Seeder
             'duration_days'            => 22,
             'start_date'               => Carbon::now()->subDays(3)->toDateString(),
             'end_date'                 => Carbon::now()->subDays(3)->addDays(22)->toDateString(),
+            // CIP générique → ref BDPM stocke le nom+indication de DEROXAT (l'originator)
+            // → affiche la mention "Indication du médicament de référence (DEROXAT…), dont Paroxétine 20 mg est un générique"
+            'cip_code'                 => '3400937890123',
         ]);
 
         PrescriptionItemPhase::create([

@@ -47,9 +47,14 @@ class MedicationController extends Controller
                         ->first();
                     $indication     = $ref?->indication;
                     $originatorName = $ref?->name;
-                    // Générique = nom du médicament ≠ nom de l'originator dans le référentiel
-                    $isGeneric = $originatorName !== null
-                        && mb_strtolower(trim($originatorName)) !== mb_strtolower(trim($latest->medication_name));
+                    // Générique = premier mot du nom originator ≠ premier mot du nom item.
+                    // Ex : "DEROXAT 20 mg, comprimé…" → "deroxat" ≠ "paroxétine" → générique.
+                    // Ex : "LEVOTHYROX 100 µg, comprimé…" → "levothyrox" == "levothyrox" → originator.
+                    // On compare le premier token (avant espace ou virgule) pour ignorer
+                    // la forme galénique qui est toujours dans le nom de référence BDPM.
+                    $firstWord  = fn (string $s): string => explode(' ', mb_strtolower(trim($s)))[0];
+                    $isGeneric  = $originatorName !== null
+                        && $firstWord($originatorName) !== $firstWord($latest->medication_name);
                 }
 
                 return [
