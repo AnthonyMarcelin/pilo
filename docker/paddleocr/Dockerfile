@@ -36,11 +36,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #   Contenu [ocr] : opencv-contrib-python==4.10.0.84, scipy, shapely, scikit-learn,
 #   tokenizers>=0.19, safetensors>=0.7.0, lxml, sentencepiece, tiktoken, etc.
 # paddlepaddle==3.2.1 : requis par paddleocr 3.x (via PaddleX 3.4.x). CPU-only.
-# httpx : client HTTP async (non requis par paddleocr, gardé pour compatibilité).
+# openai==1.109.1 : requis par GenAIClient (paddleX/inference/models/common/genai.py).
+#   Décoré @class_requires_deps("openai") — absent → DependencyError au predict().
+#   paddleX déclare openai>=1.63 dans son extra [genai-client]. Épinglé à 1.109.1
+#   (dernier 1.x) pour éviter la rupture d'API d'openai 2.x (latest=2.38.0).
+#   openai tire httpx en dépendance transitive — httpx ci-dessous devient redondant
+#   mais est gardé pour un timeout/version contrôlés.
 RUN pip install --no-cache-dir \
     "paddlepaddle==3.2.1" \
     "paddleocr==3.4.1" \
     "paddlex[ocr]==3.4.3" \
+    "openai==1.109.1" \
     "fastapi==0.115.6" \
     "uvicorn[standard]==0.32.1" \
     "python-multipart==0.0.20" \
