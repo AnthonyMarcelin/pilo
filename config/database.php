@@ -39,7 +39,9 @@ return [
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
             'busy_timeout' => null,
-            'journal_mode' => null,
+            // WAL : les lectures (consultation du pilulier) ne sont pas bloquées pendant
+            // les écritures (scan, import BDPM). Indispensable avec le worker de file d'attente.
+            'journal_mode' => 'WAL',
             'synchronous' => null,
             'transaction_mode' => 'DEFERRED',
         ],
