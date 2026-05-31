@@ -12,6 +12,13 @@ Architecture :
     PaddleOCRVL   = layout local + inférence VLM déportée (llama-cpp-server).
   Les arguments vl_rec_backend / vl_rec_server_url n'existent que sur PaddleOCRVL.
 
+Redimensionnement obligatoire (MAX_SIDE = 1500) :
+  PaddleOCR-VL est basé sur Qwen2-VL. Chaque patch 28×28 px = 1 token vision.
+  Photo iPhone 3024×4032 → ~15 000 tokens → dépasse --ctx-size 4096 du llama-server
+  → l'image est tronquée → AUCUN BLOC EXTRAIT malgré 9 min d'inférence.
+  À 1500×1125 → ~2200 tokens vision + ~500 texte ≈ 2700 < 4096. ✓
+  Gain de temps : 4032px → 1500px = ×7 moins de pixels → inférence ~2 min.
+
 Contrat API POST /ocr :
   Retourne des blocs ordonnés préservant la spatialité de l'ordonnance.
   block_order = ordre de lecture (essentiel pour associer nom → dosage → posologie).
@@ -22,20 +29,10 @@ Contrat API POST /ocr :
   {
     "filename": "ordonnance.jpg",
     "blocks": [
-      {
-        "block_id": 1,
-        "block_order": 1,
-        "block_label": "text",
-        "block_content": "Dr. Martin Paul, Médecin généraliste",
-        "block_bbox": [x1, y1, x2, y2]
-      },
-      {
-        "block_id": 2,
-        "block_order": 2,
-        "block_label": "table",
-        "block_content": "<table>...</table>",
-        "block_bbox": [x1, y1, x2, y2]
-      }
+      {"block_id": 1, "block_order": 1, "block_label": "text",
+       "block_content": "Dr. Martin Paul", "block_bbox": [x1, y1, x2, y2]},
+      {"block_id": 2, "block_order": 2, "block_label": "table",
+       "block_content": "<table>...</table>", "block_bbox": [x1, y1, x2, y2]}
     ],
     "markdown_preview": "..."
   }
@@ -52,12 +49,18 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+from PIL import Image as PILImage
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 
 # URL BASE du sidecar llama-server (sans /v1 — PaddleOCRVL ajoute le chemin).
-# La variable d'env LLAMA_SERVER_URL permet de surcharger en dev/test.
 LLAMA_SERVER_URL = os.environ.get("LLAMA_SERVER_URL", "http://llama-server:8111")
+
+# Longueur maximale du grand côté de l'image avant inférence VLM (pixels).
+# Calculé pour tenir dans --ctx-size 4096 de llama-server (Qwen2-VL, patch 28×28) :
+#   1500×1125 → ceil(1500/28)×ceil(1125/28) = 54×41 = 2214 tokens vision < 4096. ✓
+# Augmenter MAX_SIDE nécessite d'augmenter --ctx-size en conséquence.
+MAX_SIDE = 1500
 
 app = FastAPI(title="PaddleOCR-VL service", version="1.0.0")
 
@@ -75,7 +78,7 @@ def get_pipeline():
       Appel    : pipeline.predict(path) → list[ResultObject]
       Résultat : results[0].json["parsing_res_list"] → list de blocs
 
-    vl_rec_backend valeurs valides :
+    vl_rec_backend valeurs valides (paddleX 3.4.3 GenAIConfig) :
       "native" | "llama-cpp-server" | "vllm-server" | "sglang-server" |
       "fastdeploy-server" | "mlx-vlm-server"
     """
@@ -92,10 +95,37 @@ def get_pipeline():
     return _pipeline
 
 
+def _resize_for_ocr(src_path: str) -> tuple:
+    """
+    Redimensionne l'image src_path si son grand côté dépasse MAX_SIDE.
+
+    Retourne (chemin_final, new_file_created).
+    - new_file_created=False : l'image est déjà dans les limites, retourne src_path.
+    - new_file_created=True  : retourne un nouveau fichier tmp JPEG à supprimer après usage.
+
+    Qualité JPEG 85 : bon compromis OCR/taille. LANCZOS : meilleur filtre pour downscale.
+    """
+    img = PILImage.open(src_path)
+    w, h = img.size
+    if max(w, h) <= MAX_SIDE:
+        img.close()
+        return src_path, False
+
+    scale = MAX_SIDE / max(w, h)
+    new_w, new_h = round(w * scale), round(h * scale)
+    img = img.resize((new_w, new_h), PILImage.LANCZOS)
+
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_r:
+        resized_path = tmp_r.name
+    img.save(resized_path, "JPEG", quality=85)
+    img.close()
+    return resized_path, True
+
+
 @app.get("/health")
 def health():
     """Health-check — retourne 200 quand le service est démarré."""
-    return {"status": "ok", "llama_server_url": LLAMA_SERVER_URL}
+    return {"status": "ok", "llama_server_url": LLAMA_SERVER_URL, "max_side": MAX_SIDE}
 
 
 @app.post("/ocr")
@@ -118,26 +148,29 @@ async def run_ocr(file: UploadFile = File(...)):
     data = await file.read()
     original_filename = file.filename or "ordonnance.jpg"
 
-    tmp_path = None
+    tmp_path     = None
+    resized_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp_path = tmp.name
             tmp.write(data)
 
-        pipeline = get_pipeline()
+        # Redimensionner avant inférence — obligatoire pour tenir dans --ctx-size 4096.
+        # Photo iPhone 3024×4032 → ×7 moins de pixels → inférence ~2 min au lieu de 9.
+        inference_path, did_resize = _resize_for_ocr(tmp_path)
+        if did_resize:
+            resized_path = inference_path
 
-        # predict() retourne list[ResultObject], un élément par image.
-        # Pour une image unique, on prend results[0].
-        results = pipeline.predict(tmp_path)
+        pipeline = get_pipeline()
+        results = pipeline.predict(inference_path)
 
     finally:
         if tmp_path is not None:
             Path(tmp_path).unlink(missing_ok=True)
+        if resized_path is not None:
+            Path(resized_path).unlink(missing_ok=True)
 
     # --- Extraction des blocs depuis parsing_res_list ---
-    # Structure vérifiée : results[0].json["parsing_res_list"] → list[dict]
-    # Clés : block_id, block_order, block_label, block_content, block_bbox (np.ndarray)
-
     blocks = []
     markdown_lines = []
 
@@ -151,7 +184,7 @@ async def run_ocr(file: UploadFile = File(...)):
         block_content = blk.get("block_content", "") or ""
         block_bbox    = blk.get("block_bbox", [])
 
-        # block_bbox est un np.ndarray — convertir en list Python avant tout traitement.
+        # block_bbox peut être un np.ndarray — convertir en list Python.
         if isinstance(block_bbox, np.ndarray):
             block_bbox = block_bbox.tolist()
 
