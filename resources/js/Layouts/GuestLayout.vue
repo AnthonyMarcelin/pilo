@@ -1,22 +1,26 @@
 <script setup>
-import ApplicationLogo from '@/Components/ApplicationLogo.vue';
-import { Link } from '@inertiajs/vue3';
+import PiloLogo from '@/Components/PiloLogo.vue'
 </script>
 
 <template>
-    <div
-        class="flex min-h-screen flex-col items-center bg-gray-100 pt-6 sm:justify-center sm:pt-0"
-    >
-        <div>
-            <Link href="/">
-                <ApplicationLogo class="h-20 w-20 fill-current text-gray-500" />
-            </Link>
-        </div>
+  <div class="min-h-dvh bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
 
-        <div
-            class="mt-6 w-full overflow-hidden bg-white px-6 py-4 shadow-md sm:max-w-md sm:rounded-lg"
-        >
-            <slot />
-        </div>
+    <!-- Logo + nom -->
+    <div class="flex items-center gap-3 mb-8">
+      <PiloLogo class="h-8 w-auto" />
+      <span class="text-2xl font-semibold tracking-tight text-slate-800">Pilo</span>
     </div>
+
+    <!-- Carte -->
+    <div class="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-100 px-6 py-8">
+      <slot />
+    </div>
+
+    <!-- Avertissement médical -->
+    <p class="mt-8 text-xs text-slate-400 text-center max-w-xs leading-relaxed">
+      Aide-mémoire uniquement — pas un avis médical.<br>
+      Toujours vérifier avec l'ordonnance d'origine.
+    </p>
+
+  </div>
 </template>
