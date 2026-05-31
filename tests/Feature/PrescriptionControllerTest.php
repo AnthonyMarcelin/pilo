@@ -232,7 +232,9 @@ it('index renders the prescriptions page with user data', function () {
         );
 });
 
-it('index auto-terminates an active prescription whose all items have past end_date', function () {
+// L'auto-terminate est désormais dans TerminateExpiredPrescriptions (job schedulé).
+// GET /prescriptions est lecture pure — ne modifie jamais le statut.
+it('index ne modifie pas le statut d\'une ordonnance expirée (lecture pure)', function () {
     $prescription = Prescription::factory()->create([
         'user_id' => $this->user->id,
         'status'  => 'active',
@@ -246,23 +248,7 @@ it('index auto-terminates an active prescription whose all items have past end_d
 
     $this->get(route('prescriptions.index'))->assertOk();
 
-    expect($prescription->fresh()->status)->toBe('terminated');
-});
-
-it('index does not terminate when at least one item has no end_date', function () {
-    $prescription = Prescription::factory()->create([
-        'user_id' => $this->user->id,
-        'status'  => 'active',
-    ]);
-
-    PrescriptionItem::factory()->create([
-        'prescription_id' => $prescription->id,
-        'intake_type'     => 'fixe',
-        'end_date'        => null,
-    ]);
-
-    $this->get(route('prescriptions.index'))->assertOk();
-
+    // Statut inchangé — c'est le job TerminateExpiredPrescriptions qui transite.
     expect($prescription->fresh()->status)->toBe('active');
 });
 

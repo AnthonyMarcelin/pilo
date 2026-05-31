@@ -175,9 +175,8 @@ PROMPT;
         $decoded = json_decode($clean, true);
 
         if (! is_array($decoded)) {
-            throw new OcrException(
-                'OllamaClient : JSON invalide — ' . json_last_error_msg() . ' — raw: ' . substr($clean, 0, 200),
-            );
+            // Ne pas inclure le contenu brut dans le message : il peut contenir du texte d'ordonnance.
+            throw new OcrException('OllamaClient : JSON invalide — ' . json_last_error_msg());
         }
 
         return $decoded;

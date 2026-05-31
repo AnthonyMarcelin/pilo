@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rules\File;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ScanController extends Controller
 {
@@ -111,15 +112,22 @@ class ScanController extends Controller
     /**
      * Sert l'image d'ordonnance originale (pour affichage dans le formulaire de validation).
      */
-    public function image(Request $request, string $id): \Symfony\Component\HttpFoundation\StreamedResponse
+    public function image(Request $request, string $id): StreamedResponse
     {
         $scan = PrescriptionScan::where('user_id', $request->user()->id)
             ->findOrFail($id);
 
         abort_unless($scan->source_image_path, 404);
 
-        return response()->streamDownload(function () use ($scan) {
-            echo file_get_contents(storage_path("app/{$scan->source_image_path}"));
-        }, basename($scan->source_image_path));
+        $path = storage_path("app/{$scan->source_image_path}");
+        abort_unless(file_exists($path), 404);
+
+        $mime = mime_content_type($path) ?: 'image/jpeg';
+
+        return response()->streamDownload(
+            fn () => readfile($path),
+            basename($scan->source_image_path),
+            ['Content-Type' => $mime],
+        );
     }
 }

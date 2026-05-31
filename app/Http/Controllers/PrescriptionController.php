@@ -19,23 +19,9 @@ class PrescriptionController extends Controller
     public function index(Request $request): Response
     {
         $userId = $request->user()->id;
-        $today  = now()->startOfDay();
 
-        // Auto-terminate : prescriptions actives dont tous les items ont end_date dépassée
-        Prescription::where('user_id', $userId)
-            ->where('status', 'active')
-            ->with('items')
-            ->get()
-            ->each(function (Prescription $p) use ($today) {
-                if ($p->items->isEmpty()) return;
-                $allDone = $p->items->every(
-                    fn ($item) => $item->end_date !== null && $item->end_date->lt($today)
-                );
-                if ($allDone) {
-                    $p->update(['status' => 'terminated']);
-                }
-            });
-
+        // La transition active→terminated est assurée par TerminateExpiredPrescriptions
+        // (job schedulé quotidien à 01h00) — cette route est désormais lecture pure.
         $prescriptions = Prescription::where('user_id', $userId)
             ->with('items')
             ->orderByDesc('prescribed_at')
