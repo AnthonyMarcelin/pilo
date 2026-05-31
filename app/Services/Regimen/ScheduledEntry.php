@@ -2,24 +2,27 @@
 
 namespace App\Services\Regimen;
 
-/** Médicament planifié pour un moment de la journée, avec contexte de phase. */
+/** Médicament planifié pour une journée (grille fixe, au besoin ou particulier). */
 final readonly class ScheduledEntry
 {
     public function __construct(
         public int     $prescriptionItemId,
         public string  $medicationName,
-        public string  $dosageLabel,       // ex. "10 mg"
+        public string  $dosageLabel,
         public float   $morningQty,
         public float   $noonQty,
         public float   $eveningQty,
         public float   $bedtimeQty,
-        public string  $posologieBrute,    // filet de sécurité — toujours affiché
+        public string  $posologieBrute,
         public bool    $isTerminated,
-        // Contexte de phase (null si mono-palier sans annotation de progression)
-        public ?int    $dayInPhase,        // ex. 4 → "jour 4 de la phase active"
-        public ?int    $phaseDurationDays, // ex. 8 → "phase de 8 jours"
-        public ?int    $totalPhases,       // 1 = pas de dégression
-        public ?string $nextChangeNote,    // ex. "baisse à 1 cp le 9 juin" | null si dernier palier
+        // Contexte de phase (null si mono-palier sans annotation, ou si_besoin/autre)
+        public ?int    $dayInPhase,
+        public ?int    $phaseDurationDays,
+        public ?int    $totalPhases,
+        public ?string $nextChangeNote,
+        // Champs si_besoin uniquement
+        public ?string $condition  = null,
+        public ?float  $maxPerDay  = null,
     ) {}
 
     public function hasTapering(): bool
