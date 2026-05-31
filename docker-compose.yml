@@ -44,7 +44,11 @@ services:
     build:
       context: .
       dockerfile: docker/app/Dockerfile
-    command: php artisan queue:work --tries=3 --timeout=180
+    # --timeout=960 : dépasse le $timeout=900 du job (marge 1 min) pour que le job
+    # puisse timeout proprement sans que le process worker soit tué en premier.
+    # --tries=1 : cohérent avec ProcessPrescriptionScan::$tries=1 — pas de retry
+    # (relancer une inférence VL de 2-5 min bloquerait le worker inutilement).
+    command: php artisan queue:work --tries=1 --timeout=960
     env_file: .env
     depends_on:
       - app

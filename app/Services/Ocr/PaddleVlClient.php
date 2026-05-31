@@ -14,7 +14,7 @@ class PaddleVlClient
 {
     public function __construct(
         private readonly string $baseUrl,
-        private readonly int    $timeoutSeconds = 120,
+        private readonly int    $timeoutSeconds = 600, // 10 min — llama-server sur CPU peut prendre 2-5 min
     ) {}
 
     /**
