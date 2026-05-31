@@ -27,12 +27,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 libsm6 libxrender1 libxext6 libgomp1 libgl1 \
  && rm -rf /var/lib/apt/lists/*
 
-# paddleocr==3.4.1 : première version stable avec PaddleOCRVL + llama-cpp-server.
+# paddleocr==3.4.1 installe paddlex[ocr-core] comme dépendance core.
+# paddlex[ocr]==3.4.1 ajoute les extras optionnels requis par PaddleOCRVL :
+#   vérifié dans la source v3.4.1 — PaddleOCRVLPipeline est décorée avec
+#   @pipeline_requires_extra("ocr"). Sans cet extra → DependencyError au predict().
+#   Contenu [ocr] : opencv-contrib-python==4.10.0.84, scipy, shapely, scikit-learn,
+#   tokenizers>=0.19, safetensors>=0.7.0, lxml, sentencepiece, tiktoken, etc.
+#   libgl1 (apt, déjà installé) est la seule dépendance système supplémentaire.
 # paddlepaddle==3.2.1 : requis par paddleocr 3.x (via PaddleX 3.4.x). CPU-only.
-# httpx : client HTTP async pour les appels vers llama-server.
+# httpx : client HTTP async (non requis par paddleocr, gardé pour compatibilité).
 RUN pip install --no-cache-dir \
     "paddlepaddle==3.2.1" \
     "paddleocr==3.4.1" \
+    "paddlex[ocr]==3.4.1" \
     "fastapi==0.115.6" \
     "uvicorn[standard]==0.32.1" \
     "python-multipart==0.0.20" \
@@ -41,11 +48,17 @@ RUN pip install --no-cache-dir \
 
 WORKDIR /app
 
-# Pré-téléchargement du modèle de layout PP-DocLayoutV2 au moment du build.
-# On utilise PPStructureV3 (pas PaddleOCRVL) car PPStructureV3 n'a pas besoin
-# de llama-server pour s'initialiser → pas d'erreur réseau au build.
-# Les deux classes partagent le même cache PP-DocLayoutV2 dans paddleocr.
-# Le modèle VLM (GGUF) est dans llama-server — ne pas tenter de le charger ici.
+# Pré-téléchargement du modèle PP-DocLayoutV2 au moment du build.
+#
+# On utilise PPStructureV3 (pas PaddleOCRVL) : PPStructureV3 ne nécessite pas
+# llama-server pour s'initialiser → pas d'erreur de connexion au build.
+# Les deux classes partagent le même cache paddlex (~/.paddlex/official_models/).
+# Le modèle VLM (GGUF) est dans llama-server — ne jamais tenter de le charger ici.
+#
+# Cache path : /root/.paddlex/official_models/PP-DocLayoutV2/
+# Volume docker-compose : paddlex_models:/root/.paddlex (persist entre redémarrages).
+# Si le téléchargement échoue (pas d'internet au build), || true évite l'échec du
+# build ; le modèle sera téléchargé au premier démarrage du conteneur.
 RUN python -c "\
 from paddleocr import PPStructureV3; \
 PPStructureV3(device='cpu')" 2>/dev/null || true
