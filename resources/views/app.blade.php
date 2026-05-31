@@ -6,7 +6,7 @@
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-status-bar-style" content="default">
         <meta name="theme-color" content="#f8fafc">
-        <link rel="apple-touch-icon" href="/icons/pwa-192x192.png">
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 
         <title inertia>{{ config('app.name', 'Laravel') }}</title>
 
