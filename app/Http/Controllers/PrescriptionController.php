@@ -8,6 +8,7 @@ use App\Models\Prescription;
 use App\Models\PrescriptionScan;
 use App\Services\ComputeDates;
 use App\Services\DuplicateCheck;
+use App\Services\ImageConverter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -127,7 +128,8 @@ class PrescriptionController extends Controller
             $imagePath  = $scan->source_image_path;
             $sourceType = 'scan';
         } elseif ($request->hasFile('source_image')) {
-            $imagePath = $request->file('source_image')->store('prescriptions', 'local');
+            $imagePath = app(ImageConverter::class)
+                ->storeAsJpeg($request->file('source_image'), 'prescriptions');
         }
 
         $prescription = Prescription::create([

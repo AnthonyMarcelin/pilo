@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\File;
 
 class StorePrescriptionRequest extends FormRequest
 {
@@ -20,7 +21,8 @@ class StorePrescriptionRequest extends FormRequest
             'prescriber_name'                  => ['nullable', 'string', 'max:255'],
             'prescribed_at'                    => ['nullable', 'date'],
             'notes'                            => ['nullable', 'string', 'max:2000'],
-            'source_image'                     => ['nullable', 'image', 'max:10240'],
+            // 'image' exclut HEIC — on liste les types explicitement (iPhones envoient du HEIC)
+            'source_image'                     => ['nullable', File::types(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'])->max(10240)],
             'scan_id'                          => ['nullable', 'string', 'exists:prescription_scans,id'],
 
             // ── Lignes ────────────────────────────────────────────────────

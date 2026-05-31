@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Jobs\ProcessPrescriptionScan;
 use App\Models\PrescriptionScan;
+use App\Services\ImageConverter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,11 +22,16 @@ class ScanController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $request->validate([
-            'image' => ['required', File::image()->max(15 * 1024)],
+            // File::image() exclut HEIC — on liste les MIME explicitement.
+            // La conversion HEIC→JPEG est assurée par ImageConverter ci-dessous.
+            'image' => [
+                'required',
+                File::types(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'])->max(15 * 1024),
+            ],
         ]);
 
-        $path = $request->file('image')
-            ->store('prescriptions/scans', 'local');
+        $path = app(ImageConverter::class)
+            ->storeAsJpeg($request->file('image'), 'prescriptions/scans');
 
         $scan = PrescriptionScan::create([
             'user_id'           => $request->user()->id,

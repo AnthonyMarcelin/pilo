@@ -22,8 +22,9 @@ Les données de santé ne quittent jamais le serveur. La lecture des ordonnances
 
 ## Architecture
 
-- **Backend** : Laravel (PHP 8.3+), SQLite (WAL), Redis (file d'attente).
+- **Backend** : Laravel (PHP 8.4+), SQLite (WAL), Redis (file d'attente).
 - **Frontend** : Inertia.js + Vue 3 + Tailwind CSS, PWA (vite-plugin-pwa).
+- **Build** : assets Vite buildés dans l'image Docker (stage Node multi-stage) — aucune dépendance Node sur le serveur.
 - **IA locale (à la demande)** :
   - [PaddleOCR-VL](https://github.com/PaddlePaddle/PaddleOCR) — image d'ordonnance → texte + structure spatiale.
   - [Ollama](https://ollama.com) avec Qwen2.5 3B — texte structuré → JSON normalisé.
@@ -31,7 +32,10 @@ Les données de santé ne quittent jamais le serveur. La lecture des ordonnances
 
 ---
 
-## Prérequis matériel
+## Prérequis
+
+- **Docker** + **Docker Compose** (v2)
+- Aucun Node.js ni PHP requis sur l'hôte — tout est dans les conteneurs.
 
 ### Architecture CPU
 
@@ -61,44 +65,126 @@ VM recommandée : **6 Go de RAM minimum**. Le pic est transitoire (durée du sca
 
 ---
 
-## Installation
+## Premier déploiement
+
+### 1. Cloner et configurer
 
 ```bash
 git clone <url-du-repo> pilo && cd pilo
 cp .env.example .env
-# Éditez .env : APP_URL, APP_KEY (généré ci-dessous), et OWNER_EMAIL/OWNER_PASSWORD
-
-# Services de base (mode nominal, IA éteinte)
-docker compose up -d --build app web redis queue
-docker compose exec app php artisan key:generate
-docker compose exec app php artisan migrate --seed
-docker compose exec app php artisan pilo:import-bdpm   # référentiel médicaments (France)
 ```
 
-### Préparer les services IA — scan OCR (x86_64 uniquement)
+Éditez `.env` — variables **obligatoires** avant le premier démarrage :
+
+| Variable | Description |
+|---|---|
+| `APP_URL` | URL publique exacte, ex. `https://pilo.example.com` |
+| `APP_KEY` | Généré à l'étape suivante (`php artisan key:generate`) |
+| `OWNER_EMAIL` | Adresse e-mail du compte propriétaire |
+| `OWNER_PASSWORD` | Mot de passe du compte propriétaire (**changer le placeholder**) |
+| `TRUSTED_PROXIES` | `*` si derrière Traefik/Nginx/Caddy, vide sinon |
+
+Les autres variables (`CACHE_STORE=redis`, `QUEUE_CONNECTION=redis`, etc.) sont correctement renseignées par défaut.
+
+### 2. Démarrer les services de base
 
 ```bash
-# 1. Modèles VL dans le volume (~1,8 Go — une seule quantification disponible)
+docker compose up -d --build app web redis queue
+```
+
+Le build télécharge les images, compile les assets Vite dans Docker (stage Node) et installe les dépendances PHP. Première exécution : 5–10 minutes selon la connexion.
+
+### 3. Initialiser l'application
+
+```bash
+# Générer la clé d'application (remplit APP_KEY dans .env)
+docker compose exec app php artisan key:generate
+
+# Créer le schéma de base de données
+docker compose exec app php artisan migrate
+
+# Créer le compte propriétaire (utilise OWNER_EMAIL / OWNER_PASSWORD du .env)
+docker compose exec app php artisan db:seed --class=OwnerSeeder
+
+# ⚠️  NE PAS utiliser --seed en production (insèrerait des données de démo)
+
+# Optionnel : importer le référentiel BDPM (médicaments France)
+# Télécharger d'abord les 3 fichiers depuis base-donnees-publique.medicaments.gouv.fr
+# puis les placer dans le répertoire courant, et lancer :
+docker compose exec app php artisan pilo:import-bdpm
+```
+
+L'application est disponible sur le port `8080` de l'hôte (à exposer via votre reverse proxy).
+
+### 4. Préparer le scan OCR — x86_64 uniquement
+
+```bash
+# Modèles VL dans le volume (~1,8 Go)
 docker run --rm -v pilo_vl_models:/models alpine sh -c "
   apk add --no-cache wget &&
-  wget -O /models/PaddleOCR-VL-1.6-GGUF.gguf \
+  wget -q -O /models/PaddleOCR-VL-1.6-GGUF.gguf \
     'https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/main/PaddleOCR-VL-1.6-GGUF.gguf' &&
-  wget -O /models/PaddleOCR-VL-1.6-GGUF-mmproj.gguf \
+  wget -q -O /models/PaddleOCR-VL-1.6-GGUF-mmproj.gguf \
     'https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/main/PaddleOCR-VL-1.6-GGUF-mmproj.gguf'
 "
 
-# 2. Modèle Ollama de structuration JSON (~1,9 Go)
+# Modèle Ollama de structuration JSON (~1,9 Go)
 docker compose --profile ai up -d ollama
 docker compose exec ollama ollama pull qwen2.5:3b-instruct
-
-# Les services IA s'allument/s'éteignent automatiquement à chaque scan (via pilo:ai-up/down).
+docker compose --profile ai stop ollama
 ```
+
+Les services IA s'allument et s'éteignent automatiquement à chaque scan.
+
+---
+
+## Mise à jour
+
+```bash
+# 1. Récupérer les nouvelles versions
+git pull
+
+# 2. Reconstruire les images (inclut le nouveau build Vite et les dépendances)
+docker compose up -d --build app web queue
+
+# 3. Appliquer les migrations de base de données
+docker compose exec app php artisan migrate
+
+# 4. Vider les caches applicatifs
+docker compose exec app php artisan optimize:clear
+```
+
+> **Important :** `migrate` uniquement — ne jamais relancer `db:seed` en production (écrase les données existantes).
 
 ---
 
 ## Déploiement derrière un reverse proxy
 
-Pilo est conçu pour tourner derrière un reverse proxy avec TLS. Le conteneur `web` (Nginx) écoute sur le port `8080` par défaut et sert l'application.
+Pilo est conçu pour tourner derrière un reverse proxy avec TLS. Le conteneur `web` (Nginx) écoute sur le port `8080` de l'hôte.
+
+### TrustProxies
+
+Pour que Laravel génère des liens `https://` corrects et lise l'IP réelle du client, la variable `TRUSTED_PROXIES` doit être définie dans `.env` :
+
+```env
+TRUSTED_PROXIES=*          # tous les proxies (Traefik, Nginx interne, etc.)
+# ou
+TRUSTED_PROXIES=10.0.0.0/8  # CIDR du réseau du proxy
+```
+
+Sans cette variable, les liens générés seront en `http://` même derrière un proxy HTTPS, provoquant du contenu mixte et une page blanche.
+
+### Exemple : Traefik (labels Docker)
+
+```yaml
+# Dans docker-compose.yml, ajouter au service web :
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.pilo.rule=Host(`pilo.example.com`)"
+  - "traefik.http.routers.pilo.entrypoints=websecure"
+  - "traefik.http.routers.pilo.tls.certresolver=letsencrypt"
+  - "traefik.http.services.pilo.loadbalancer.server.port=80"
+```
 
 ### Exemple : Nginx en reverse proxy
 
@@ -109,8 +195,6 @@ server {
 
     ssl_certificate     /etc/ssl/certs/pilo.crt;
     ssl_certificate_key /etc/ssl/private/pilo.key;
-
-    # Limite pour les uploads d'ordonnances (images)
     client_max_body_size 20m;
 
     location / {
@@ -131,7 +215,7 @@ server {
 }
 ```
 
-### Exemple : Caddy (automatique HTTPS)
+### Exemple : Caddy (HTTPS automatique)
 
 ```caddyfile
 pilo.example.com {
@@ -142,18 +226,6 @@ pilo.example.com {
     }
 }
 ```
-
-### Variables d'environnement importantes
-
-Dans `.env`, ajustez :
-
-```env
-APP_URL=https://pilo.example.com
-APP_ENV=production
-APP_DEBUG=false
-```
-
-Les headers `X-Forwarded-*` sont lus automatiquement par Laravel via le middleware `TrustProxies`.
 
 ---
 
