@@ -17,7 +17,7 @@ class OllamaClient
     public function __construct(
         private readonly string $baseUrl,
         private readonly string $model           = 'qwen2.5:7b-instruct',
-        private readonly int    $timeoutSeconds  = 300, // 5 min — Qwen 3B peut être lent sous charge
+        private readonly int    $timeoutSeconds  = 900, // 15 min — 7B CPU ~5-6 min d'inférence ; worker=960
     ) {}
 
     /**
