@@ -346,7 +346,10 @@ async def run_ocr(file: UploadFile = File(...)):
         if not isinstance(blk, dict):
             blk = _block_obj_to_dict(blk)
 
-        block_order   = blk.get("block_order",   idx)
+        # .get("block_order", idx) NE remplace PAS un None explicite dans le dict.
+        # Certains blocs (images, formules) ont block_order=None → fallback sur idx.
+        _raw_order    = blk.get("block_order")
+        block_order   = _raw_order if _raw_order is not None else idx
         block_label   = str(blk.get("block_label", "text")).lower()
         block_content = blk.get("block_content", "") or ""
         block_bbox    = blk.get("block_bbox", [])
@@ -373,7 +376,9 @@ async def run_ocr(file: UploadFile = File(...)):
 
         markdown_lines.append(block_content if block_label == "table" else str(block_content))
 
-    blocks.sort(key=lambda b: b["block_order"])
+    # Tri robuste aux None : None poussé en fin de liste (float("inf")).
+    # Normalement plus de None ici grâce au fallback idx ci-dessus, mais garde de sécurité.
+    blocks.sort(key=lambda b: b["block_order"] if b["block_order"] is not None else float("inf"))
 
     _log.warning(f"[OCR] réponse finale : {len(blocks)} blocs")
 
