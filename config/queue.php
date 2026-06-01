@@ -68,7 +68,12 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            // retry_after : délai (s) avant qu'un job "processing" soit remis en queue
+            // si le worker est tué avant d'avoir pu l'acquitter (ex: OOM, SIGKILL).
+            // Doit être > worker --timeout (960s) pour ne jamais re-queuer un job
+            // en cours d'exécution → évite le restart loop Docker (job re-pris par le
+            // nouveau worker avant d'avoir été marqué failed, même avec tries=1).
+            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 1800), // 30 min
             'block_for' => null,
             'after_commit' => false,
         ],

@@ -86,7 +86,9 @@ function formatTime(s) {
 
       <!-- Sous-titre -->
       <p v-if="!errorMsg" class="text-sm text-slate-400 max-w-xs">
-        L'IA locale analyse l'image. Cela peut prendre 15–30 secondes, plus quelques secondes au premier lancement pour charger les modèles.
+        L'IA locale analyse l'image.<br>
+        Comptez <strong class="text-slate-500">2 à 5 minutes</strong> selon la taille de l'ordonnance.
+        Laissez la page ouverte — elle se met à jour automatiquement.
       </p>
       <p v-else class="text-sm text-amber-700 max-w-xs">
         {{ errorMsg }} Vous pouvez saisir l'ordonnance manuellement.
