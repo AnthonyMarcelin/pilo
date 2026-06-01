@@ -31,9 +31,11 @@ fi
 # Buildés dans l'image (stage Node → /pilo_build), copiés dans public/build/
 # à chaque démarrage pour rester synchrones avec l'image courante.
 # public/build est dans .gitignore → non présent dans le volume monté.
+# On supprime d'abord public/build/ : "cp -r" échoue si des fichiers existent
+# déjà (BusyBox cp retourne "File exists" sur les conflits sans -f).
 if [ -d /pilo_build ]; then
-    mkdir -p public/build
-    cp -r /pilo_build/. public/build/
+    rm -rf public/build
+    cp -r /pilo_build public/build
 fi
 
 # ── 3. SQLite — création + permissions ──────────────────────────────────────

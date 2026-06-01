@@ -37,12 +37,17 @@ function emptyItem() {
 }
 
 function hydrateItem(raw) {
+  // Pour les items si_besoin / autre : phases = [] (PhaseEditor non affiché,
+  // et phases: [{duration_days: null}] ferait échouer la validation serveur).
+  const isFixe = (raw.intake_type ?? 'fixe') === 'fixe'
   return {
     ...emptyItem(),
     ...raw,
-    phases: raw.phases?.length > 0
-      ? raw.phases.map(p => ({ ...emptyPhase(), ...p }))
-      : [emptyPhase()],
+    phases: isFixe
+      ? (raw.phases?.length > 0
+          ? raw.phases.map(p => ({ ...emptyPhase(), ...p }))
+          : [emptyPhase()])
+      : [],
   }
 }
 
@@ -80,15 +85,23 @@ function removeItem(index) {
 
 function setIntakeType(item, type) {
   item.intake_type = type
-  if (type !== 'fixe') {
-    item.phases = [emptyPhase()]
-  }
+  // Fixe → garder au moins un palier. Si besoin / Autre → pas de phases.
+  item.phases = type === 'fixe' ? (item.phases?.length > 0 ? item.phases : [emptyPhase()]) : []
 }
 
 // ── Soumission ────────────────────────────────────────────────────────────────
 
 function submit() {
-  form.post(route('prescriptions.store'), {
+  // Strip défensif : ne jamais envoyer de phases pour les items non-fixe.
+  // Évite que phases:[{duration_days:null}] (valeur par défaut d'emptyItem)
+  // ne déclenche la validation serveur sur duration_days pour si_besoin/autre.
+  form.transform(data => ({
+    ...data,
+    items: data.items.map(item => ({
+      ...item,
+      phases: item.intake_type === 'fixe' ? item.phases : [],
+    })),
+  })).post(route('prescriptions.store'), {
     forceFormData: true,
     preserveScroll: true,
   })
@@ -435,9 +448,14 @@ const intakeTypes = [
           <span v-if="form.processing">Enregistrement…</span>
           <span v-else>Enregistrer l'ordonnance</span>
         </button>
-        <p v-if="form.hasErrors" class="text-xs text-red-500 text-center mt-2">
-          Corrigez les erreurs ci-dessus avant de soumettre.
-        </p>
+        <div v-if="form.hasErrors" class="text-xs text-red-500 mt-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+          <p class="font-medium mb-1">Corrigez les erreurs suivantes :</p>
+          <ul class="list-disc list-inside space-y-0.5">
+            <li v-for="(msg, field) in form.errors" :key="field">
+              <span class="font-mono text-red-400 mr-1">{{ field }}</span>{{ msg }}
+            </li>
+          </ul>
+        </div>
       </div>
 
     </form>
