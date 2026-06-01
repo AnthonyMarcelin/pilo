@@ -50,6 +50,10 @@ services:
     # (relancer une inférence VL de 2-5 min bloquerait le worker inutilement).
     command: php artisan queue:work --tries=1 --timeout=960
     env_file: .env
+    environment:
+      # Le worker ne sert pas de fichiers statiques — laisser `app` gérer la copie
+      # des assets Vite pour éviter la race condition entre les deux conteneurs.
+      SKIP_ASSET_COPY: "1"
     depends_on:
       - app
       - redis
