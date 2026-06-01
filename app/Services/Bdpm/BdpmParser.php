@@ -279,7 +279,17 @@ final class BdpmParser
     // ─── Privés ───────────────────────────────────────────────────────────────
 
     /**
-     * Lit un fichier ISO-8859-1 ligne par ligne, convertit en UTF-8.
+     * Lit un fichier BDPM ligne par ligne en produisant de l'UTF-8 propre.
+     *
+     * Les fichiers BDPM sont distribués en deux encodages selon la version :
+     *  - Anciens fichiers : Windows-1252 (superset ISO-8859-1 — gère l'apostrophe 0x92 = ')
+     *  - Fichiers récents : UTF-8
+     *
+     * Stratégie : tester mb_check_encoding sur chaque ligne brute.
+     *   • Si la ligne est déjà du UTF-8 valide → la retourner telle quelle (évite
+     *     la double-conversion qui transforme "é" 0xC3 0xA9 en "Ã©").
+     *   • Sinon → convertir depuis Windows-1252 (pas ISO-8859-1, pour préserver
+     *     l'apostrophe typographique 0x92 = ' plutôt que ▣).
      *
      * @return iterable<string>
      */
@@ -292,7 +302,12 @@ final class BdpmParser
 
         try {
             while (($raw = fgets($handle)) !== false) {
-                $line = mb_convert_encoding(rtrim($raw, "\r\n"), 'UTF-8', 'ISO-8859-1');
+                $trimmed = rtrim($raw, "\r\n");
+                // mb_check_encoding strict : retourne true seulement si tous les bytes
+                // forment des séquences UTF-8 valides (y compris multi-octets).
+                $line = mb_check_encoding($trimmed, 'UTF-8')
+                    ? $trimmed
+                    : mb_convert_encoding($trimmed, 'UTF-8', 'Windows-1252');
                 if ($line !== '') {
                     yield $line;
                 }
@@ -324,11 +339,62 @@ final class BdpmParser
         return true;
     }
 
-    /** Nettoie les entités HTML du libellé SMR. */
+    /**
+     * Nettoie les entités HTML du libellé SMR puis extrait la partie thérapeutique.
+     *
+     * Le libellé SMR HAS suit généralement le pattern :
+     *   "Le service médical rendu par [DRUG] dans [INDICATION] est important.
+     *    La présentation [DRUG] X mg, comprimé en plaquette thermoformée de 30..."
+     * → On veut : "[INDICATION]" seulement — pas le verbiage administratif ni le
+     *   conditionnement.
+     *
+     * Si le pattern standard n'est pas reconnu, on retourne la première phrase,
+     * ce qui élimine déjà les lignes de conditionnement qui suivent le ".".
+     */
     private function cleanLibelle(string $libelle): string
     {
         // &lt;br&gt; → \n, autres entités HTML → caractère réel
         $clean = str_replace(['&lt;br&gt;', '&lt;BR&gt;', '<br>', '<BR>'], "\n", $libelle);
-        return html_entity_decode($clean, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $clean = html_entity_decode($clean, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return $this->simplifySmrLibelle($clean);
+    }
+
+    /**
+     * Extrait l'indication thérapeutique utile du libellé SMR.
+     *
+     * Stratégie (par ordre) :
+     *  1. Reconnaît le pattern standard HAS → extrait la partie INDICATION.
+     *     Ex : "... dans le traitement de l'HTA et de l'angor stable est important."
+     *          → "Le traitement de l'HTA et de l'angor stable"
+     *  2. Sinon → retourne la première phrase (supprime packaging, conditionnement…).
+     *  3. Si la première phrase est trop courte → retourne le texte complet.
+     */
+    private function simplifySmrLibelle(string $libelle): string
+    {
+        // Première phrase : coupe avant ". " suivi d'une majuscule, ou avant \n
+        $firstSentence = preg_split('/\.\s+(?=\p{Lu})|\n/u', $libelle, 2)[0] ?? $libelle;
+        $firstSentence = rtrim($firstSentence, '. ');
+
+        if (mb_strlen($firstSentence) < 10) {
+            return $libelle; // trop court → retourner le texte complet
+        }
+
+        // Pattern standard HAS : "Le service médical rendu par X dans [INDICATION] est/reste [NIVEAU]"
+        // Le `.+?` non-greedy capture de "dans" jusqu'au dernier "est/reste [niveau]" de la phrase.
+        if (preg_match(
+            '/\ble service médical rendu par .+? dans (.+?) (?:est|reste)\s+(?:très\s+)?(?:important|insuffisant|modéré|faible)/iu',
+            $firstSentence,
+            $m,
+        )) {
+            $indication = trim($m[1]);
+            if (mb_strlen($indication) >= 5) {
+                // Capitaliser la première lettre
+                return mb_strtoupper(mb_substr($indication, 0, 1, 'UTF-8'), 'UTF-8')
+                    . mb_substr($indication, 1, null, 'UTF-8');
+            }
+        }
+
+        return $firstSentence;
     }
 }
