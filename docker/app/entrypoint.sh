@@ -31,9 +31,12 @@ fi
 # Buildés dans l'image (stage Node → /pilo_build), copiés dans public/build/
 # à chaque démarrage pour rester synchrones avec l'image courante.
 # public/build est dans .gitignore → non présent dans le volume monté.
-# On supprime d'abord public/build/ : "cp -r" échoue si des fichiers existent
-# déjà (BusyBox cp retourne "File exists" sur les conflits sans -f).
-if [ -d /pilo_build ]; then
+#
+# SKIP_ASSET_COPY=1 : positionné sur le service `queue` dans docker-compose.yml
+# pour éviter la race condition entre `app` et `queue` qui tournent tous les deux
+# cet entrypoint au démarrage. Seul `app` gère la copie ; `queue` n'a pas besoin
+# de servir des assets statiques (c'est nginx/web qui les sert).
+if [ -d /pilo_build ] && [ "${SKIP_ASSET_COPY:-0}" != "1" ]; then
     rm -rf public/build
     cp -r /pilo_build public/build
 fi

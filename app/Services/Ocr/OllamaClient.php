@@ -142,13 +142,15 @@ RÈGLE 6 — intake_type :
 RÈGLE 7 — morning / noon / evening / bedtime :
 Nombre d'unités par prise. null si intake_type ≠ "fixe" OU si phases[] non vide.
 
-RÈGLE 8 — phases[] (PALIERS DÉGRESSIFS) :
-Un médicament à posologie dégressive = UN SEUL item avec phases[].
-NE PAS créer deux items distincts pour le même médicament.
-Signaux : "puis", "ensuite", durées successives différentes pour le même médicament.
-→ Un objet par palier : {"duration_days": N, "morning": X, "noon": Y, "evening": Z, "bedtime": W}.
-→ phases[] non vide → morning/noon/evening/bedtime de l'item parent = null.
-→ Paliers priment sur dose simple si les deux apparaissent.
+RÈGLE 8 — phases[] (PALIERS DÉGRESSIFS) — ERREUR CRITIQUE si non respectée :
+Un médicament à posologie dégressive = UN SEUL item JSON avec phases[] rempli.
+INTERDIT : créer deux items distincts pour le même médicament (un pour "7j" et un pour "15j").
+INTERDIT : mettre morning/noon/evening/bedtime dans l'item parent et laisser phases:[].
+Signaux dans le texte : "puis", "ensuite", "progressivement", "réduire à",
+  durées successives ("pendant 7 jours PUIS 1 comprimé 15 jours", "3j×2cp puis 5j×1cp").
+→ Créer UN objet par segment : {"duration_days": N, "morning": X, "noon": Y, "evening": Z, "bedtime": W}.
+→ phases[] non vide → morning/noon/evening/bedtime de l'item parent = null OBLIGATOIREMENT.
+→ Paliers priment sur dose directe si les deux apparaissent dans le même item.
 
 RÈGLE 9 — posologie_brute :
 Copier VERBATIM. Toujours rempli.
@@ -165,6 +167,11 @@ Blocs : "[1|text] Dr. Didier Delhaye / 15/03/2026 [2|text] Amoxicilline 500 mg 1
 EXEMPLE 2 — Palier dégressif (1 seul item) :
 Blocs : "[1|text] Paroxétine 20 mg 2 cp/j pendant 7j PUIS 1 cp/j pendant 15j PUIS arrêt"
 → {"prescriber_name":null,"prescribed_at":null,"items":[{"medication_name":"Paroxétine","dosage":"20 mg","intake_type":"fixe","morning":null,"noon":null,"evening":null,"bedtime":null,"condition":null,"max_per_day":null,"duration_days":22,"qsp_days":null,"posologie_brute":"2 cp/j pendant 7j PUIS 1 cp/j pendant 15j PUIS arrêt","phases":[{"duration_days":7,"morning":2,"noon":null,"evening":null,"bedtime":null},{"duration_days":15,"morning":1,"noon":null,"evening":null,"bedtime":null}]}]}
+
+EXEMPLE 4 — Palier dégressif avec dosage séparé (cas fréquent corticoïdes/antidépresseurs) :
+Blocs : "[1|text] Dr. Lemaire / 10/05/2026 [2|text] Prednisolone 20 mg 3 comprimés/jour pendant 5 jours PUIS 2 comprimés/jour 5 jours PUIS 1 comprimé/jour 5 jours"
+→ {"prescriber_name":"Dr. Lemaire","prescribed_at":"2026-05-10","items":[{"medication_name":"Prednisolone","dosage":"20 mg","intake_type":"fixe","morning":null,"noon":null,"evening":null,"bedtime":null,"condition":null,"max_per_day":null,"duration_days":15,"qsp_days":null,"posologie_brute":"3 comprimés/jour pendant 5 jours PUIS 2 comprimés/jour 5 jours PUIS 1 comprimé/jour 5 jours","phases":[{"duration_days":5,"morning":3,"noon":null,"evening":null,"bedtime":null},{"duration_days":5,"morning":2,"noon":null,"evening":null,"bedtime":null},{"duration_days":5,"morning":1,"noon":null,"evening":null,"bedtime":null}]}]}
+(Note : morning/noon/evening/bedtime de l'item parent = null car phases[] non vide. dosage = "20 mg" extrait du nom.)
 
 EXEMPLE 3 — Labels à ignorer + plusieurs médicaments :
 Blocs : "[1|text] Etablissement [2|text] N° FINESS [3|text] Dr. Martin / 01/06/2026 [4|text] Metformine 850 mg 1 cp matin soir [5|text] Paracétamol 1000 mg si douleur max 4/j [6|text] Prescripteur [7|text] N° RPPS"
@@ -192,10 +199,18 @@ PROMPT;
         try {
             $response = Http::timeout($this->timeoutSeconds)
                 ->post("{$this->baseUrl}/api/generate", [
-                    'model'  => $this->model,
-                    'prompt' => $prompt,
-                    'format' => self::prescriptionSchema(),
-                    'stream' => false,
+                    'model'   => $this->model,
+                    'prompt'  => $prompt,
+                    'format'  => self::prescriptionSchema(),
+                    'stream'  => false,
+                    'options' => [
+                        // Température 0 = déterminisme maximal : l'extraction médicale
+                        // doit être reproductible, pas créative. Réduit les dosages
+                        // oubliés et les paliers dégressifs aplatis.
+                        'temperature' => 0.0,
+                        // Graine fixe pour reproductibilité entre relances (debug).
+                        'seed'        => 42,
+                    ],
                 ]);
         } catch (\Throwable $e) {
             throw new OcrException("OllamaClient : service indisponible — {$e->getMessage()}", 0, $e);
