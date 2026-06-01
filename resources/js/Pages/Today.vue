@@ -1,7 +1,7 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { Head } from '@inertiajs/vue3'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
     todayLabel: { type: String, default: '' },
@@ -66,6 +66,15 @@ function alertMessage(alert) {
     return alert.daysLeft > 0
         ? `Bientôt plus de ${alert.medication} (~${alert.daysLeft} j) — pense à renouveler`
         : `Plus de ${alert.medication} — pense à renouveler`
+}
+
+// ── Expand/collapse du détail de chaque médicament ───────────────────────────
+const expanded = ref(new Set())
+
+function toggleDetail(id) {
+    const s = new Set(expanded.value)
+    s.has(id) ? s.delete(id) : s.add(id)
+    expanded.value = s
 }
 </script>
 
@@ -156,21 +165,32 @@ function alertMessage(alert) {
                 class="flex flex-col gap-0.5"
                 :class="{ 'opacity-40': entry.isTerminated }"
               >
-                <!-- Nom + dose -->
-                <div class="flex items-baseline justify-between gap-2">
+                <!-- Ligne principale — cliquable pour afficher le détail -->
+                <button
+                  type="button"
+                  class="flex items-baseline justify-between gap-2 text-left w-full"
+                  @click="toggleDetail(entry.id)"
+                >
                   <span
                     class="text-sm font-medium text-slate-800 leading-snug"
                     :class="{ 'line-through': entry.isTerminated }"
                   >{{ entry.name }}</span>
-                  <span
-                    v-if="!entry.isTerminated && entry.qty > 0"
-                    class="text-sm font-semibold tabular-nums flex-shrink-0"
-                    :style="{ color: moment.heading }"
-                  >× {{ formatQty(entry.qty) }}</span>
-                </div>
+                  <span class="flex items-center gap-1 flex-shrink-0">
+                    <span
+                      v-if="!entry.isTerminated && entry.qty > 0"
+                      class="text-sm font-semibold tabular-nums"
+                      :style="{ color: moment.heading }"
+                    >× {{ formatQty(entry.qty) }}</span>
+                    <svg
+                      class="w-3 h-3 text-slate-300 transition-transform"
+                      :class="{ 'rotate-180': expanded.has(entry.id) }"
+                      viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                    ><polyline points="6 9 12 15 18 9"/></svg>
+                  </span>
+                </button>
 
                 <!-- Label de phase dégressive (item actif) -->
-                <div v-if="!entry.isTerminated && entry.hasTapering && entry.dayInPhase" class="flex flex-col gap-0.5">
+                <div v-if="!entry.isTerminated && entry.hasTapering && entry.dayInPhase" class="flex flex-col gap-0.5 pointer-events-none">
                   <span class="text-xs text-slate-500">
                     jour {{ entry.dayInPhase }}/{{ entry.phaseDurationDays }}
                   </span>
@@ -180,9 +200,26 @@ function alertMessage(alert) {
                 </div>
 
                 <!-- Label terminé -->
-                <span v-if="entry.isTerminated" class="text-xs text-slate-500">
+                <span v-if="entry.isTerminated" class="text-xs text-slate-500 pointer-events-none">
                   {{ entry.endDateLabel }} — à renouveler ?
                 </span>
+
+                <!-- ── Panneau de détail dépliable ── -->
+                <div
+                  v-if="expanded.has(entry.id)"
+                  class="mt-1.5 rounded-lg px-3 py-2.5 text-xs text-slate-600 space-y-1"
+                  style="background:rgba(0,0,0,0.04)"
+                >
+                  <p v-if="entry.dosageLabel" class="font-medium text-slate-700">
+                    {{ entry.dosageLabel }}
+                  </p>
+                  <p class="leading-relaxed text-slate-500 whitespace-pre-wrap">
+                    {{ entry.posologieBrute }}
+                  </p>
+                  <p v-if="entry.endDateLabel" class="text-slate-400">
+                    {{ entry.endDateLabel }}
+                  </p>
+                </div>
               </div>
             </template>
             <p v-else class="text-sm text-slate-500 italic">Aucun médicament</p>
@@ -204,11 +241,31 @@ function alertMessage(alert) {
         </div>
         <div class="px-4 pb-4 space-y-3">
           <div v-for="entry in regimen.asNeeded" :key="entry.id" class="flex flex-col gap-0.5">
-            <span class="text-sm font-medium text-slate-800">{{ entry.name }}</span>
+            <button
+              type="button"
+              class="flex items-baseline justify-between gap-2 text-left w-full"
+              @click="toggleDetail(entry.id)"
+            >
+              <span class="text-sm font-medium text-slate-800">{{ entry.name }}</span>
+              <svg
+                class="w-3 h-3 text-slate-300 transition-transform flex-shrink-0"
+                :class="{ 'rotate-180': expanded.has(entry.id) }"
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+              ><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
             <span v-if="entry.condition" class="text-xs text-slate-500">{{ entry.condition }}</span>
             <span v-if="entry.maxPerDay" class="text-xs text-slate-400">
               max {{ formatQty(entry.maxPerDay) }} /jour
             </span>
+            <div
+              v-if="expanded.has(entry.id)"
+              class="mt-1.5 rounded-lg px-3 py-2.5 text-xs text-slate-600 space-y-1"
+              style="background:rgba(0,0,0,0.04)"
+            >
+              <p v-if="entry.dosageLabel" class="font-medium text-slate-700">{{ entry.dosageLabel }}</p>
+              <p class="leading-relaxed text-slate-500 whitespace-pre-wrap">{{ entry.posologieBrute }}</p>
+              <p v-if="entry.endDateLabel" class="text-slate-400">{{ entry.endDateLabel }}</p>
+            </div>
           </div>
         </div>
       </section>
