@@ -60,6 +60,7 @@ function phaseError(phaseIndex, field) {
           :value="phases[0].duration_days ?? ''"
           @input="updatePhase(0, 'duration_days', $event.target.value)"
           class="field-input"
+          :class="{ 'field-input-error': phaseError(0, 'duration_days') }"
           placeholder="Ex : 30"
         />
         <p v-if="phaseError(0, 'duration_days')" class="field-error">{{ phaseError(0, 'duration_days') }}</p>
@@ -142,6 +143,7 @@ function phaseError(phaseIndex, field) {
             :value="phase.duration_days ?? ''"
             @input="updatePhase(i, 'duration_days', $event.target.value)"
             class="field-input w-28"
+            :class="{ 'field-input-error': phaseError(i, 'duration_days') }"
             placeholder="Ex : 7"
           />
           <p v-if="phaseError(i, 'duration_days')" class="field-error">{{ phaseError(i, 'duration_days') }}</p>

@@ -43,8 +43,11 @@ class StorePrescriptionRequest extends FormRequest
             'items.*.boxes_count'              => ['nullable', 'integer', 'min:0'],
 
             // ── Paliers (fixe uniquement) ─────────────────────────────────
+            // phases est toujours présent dans le payload (emptyPhase() pour non-fixe),
+            // mais duration_days est nullable : la règle required est vérifiée dans
+            // withValidator uniquement pour les items fixe qui ont des phases.
             'items.*.phases'                   => ['sometimes', 'array'],
-            'items.*.phases.*.duration_days'   => ['required', 'integer', 'min:1', 'max:730'],
+            'items.*.phases.*.duration_days'   => ['nullable', 'integer', 'min:1', 'max:730'],
             'items.*.phases.*.morning'         => ['nullable', 'numeric', 'min:0', 'max:99.99'],
             'items.*.phases.*.noon'            => ['nullable', 'numeric', 'min:0', 'max:99.99'],
             'items.*.phases.*.evening'         => ['nullable', 'numeric', 'min:0', 'max:99.99'],
@@ -56,11 +59,26 @@ class StorePrescriptionRequest extends FormRequest
     {
         $validator->after(function (Validator $v) {
             foreach ($this->input('items', []) as $i => $item) {
-                if (($item['intake_type'] ?? '') === 'fixe') {
-                    if (empty($item['phases'] ?? [])) {
+                if (($item['intake_type'] ?? '') !== 'fixe') {
+                    continue; // pas de validation de phases pour si_besoin/autre
+                }
+
+                $phases = $item['phases'] ?? [];
+
+                if (empty($phases)) {
+                    $v->errors()->add(
+                        "items.{$i}.phases",
+                        'Un médicament fixe requiert au moins un palier posologique.',
+                    );
+                    continue;
+                }
+
+                // Pour les items fixe, duration_days est requis sur chaque palier
+                foreach ($phases as $j => $phase) {
+                    if (empty($phase['duration_days'])) {
                         $v->errors()->add(
-                            "items.{$i}.phases",
-                            'Un médicament fixe requiert au moins un palier posologique.',
+                            "items.{$i}.phases.{$j}.duration_days",
+                            'La durée du palier est obligatoire.',
                         );
                     }
                 }

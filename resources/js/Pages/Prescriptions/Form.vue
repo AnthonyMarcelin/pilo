@@ -37,12 +37,17 @@ function emptyItem() {
 }
 
 function hydrateItem(raw) {
+  // Pour les items si_besoin / autre : phases = [] (PhaseEditor non affiché,
+  // et phases: [{duration_days: null}] ferait échouer la validation serveur).
+  const isFixe = (raw.intake_type ?? 'fixe') === 'fixe'
   return {
     ...emptyItem(),
     ...raw,
-    phases: raw.phases?.length > 0
-      ? raw.phases.map(p => ({ ...emptyPhase(), ...p }))
-      : [emptyPhase()],
+    phases: isFixe
+      ? (raw.phases?.length > 0
+          ? raw.phases.map(p => ({ ...emptyPhase(), ...p }))
+          : [emptyPhase()])
+      : [],
   }
 }
 
@@ -80,15 +85,23 @@ function removeItem(index) {
 
 function setIntakeType(item, type) {
   item.intake_type = type
-  if (type !== 'fixe') {
-    item.phases = [emptyPhase()]
-  }
+  // Fixe → garder au moins un palier. Si besoin / Autre → pas de phases.
+  item.phases = type === 'fixe' ? (item.phases?.length > 0 ? item.phases : [emptyPhase()]) : []
 }
 
 // ── Soumission ────────────────────────────────────────────────────────────────
 
 function submit() {
-  form.post(route('prescriptions.store'), {
+  // Strip défensif : ne jamais envoyer de phases pour les items non-fixe.
+  // Évite que phases:[{duration_days:null}] (valeur par défaut d'emptyItem)
+  // ne déclenche la validation serveur sur duration_days pour si_besoin/autre.
+  form.transform(data => ({
+    ...data,
+    items: data.items.map(item => ({
+      ...item,
+      phases: item.intake_type === 'fixe' ? item.phases : [],
+    })),
+  })).post(route('prescriptions.store'), {
     forceFormData: true,
     preserveScroll: true,
   })
@@ -109,6 +122,57 @@ const intakeTypes = [
   { value: 'si_besoin', label: 'Si besoin' },
   { value: 'autre',     label: 'Autre' },
 ]
+
+// ── Récapitulatif d'erreurs lisible ──────────────────────────────────────────
+//
+// Traduit les clés techniques (items.3.posologie_brute) en phrases claires
+// pour une utilisatrice non technique, et fournit l'ancre de scroll.
+
+function scrollToAnchor(anchor) {
+  const el = document.getElementById(anchor)
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+const humanErrors = computed(() => {
+  const FIELD_LABELS = {
+    medication_name: 'Nom manquant',
+    posologie_brute: 'Posologie manquante',
+    intake_type:     'Type de prise invalide',
+    phases:          'Paliers manquants',
+  }
+  const TOP_LABELS = {
+    prescriber_name: ['Prescripteur invalide',          'field-prescriber'],
+    prescribed_at:   ["Date de l'ordonnance invalide",  'field-prescribed-at'],
+    source_image:    ['Photo invalide',                  null],
+    items:           ['Liste de médicaments invalide',   null],
+  }
+
+  return Object.entries(form.errors).map(([key, msg]) => {
+    // items.{i}.phases.{j}.{field}
+    const mPhase = key.match(/^items\.(\d+)\.phases\.(\d+)\.(\w+)$/)
+    if (mPhase) {
+      const n    = +mPhase[1] + 1
+      const p    = +mPhase[2] + 1
+      const many = (form.items[+mPhase[1]]?.phases?.length ?? 1) > 1
+      const fl   = mPhase[3] === 'duration_days'
+        ? (many ? `Durée du palier ${p} manquante` : 'Durée du palier manquante')
+        : msg
+      return { label: `Médicament ${n} — ${fl}`, anchor: `item-${mPhase[1]}-phases` }
+    }
+
+    // items.{i}.{field}
+    const mItem = key.match(/^items\.(\d+)\.(\w+)$/)
+    if (mItem) {
+      const n  = +mItem[1] + 1
+      const fl = FIELD_LABELS[mItem[2]] ?? msg
+      return { label: `Médicament ${n} — ${fl}`, anchor: `item-${mItem[1]}` }
+    }
+
+    // Champs de l'ordonnance
+    const top = TOP_LABELS[key]
+    return { label: top?.[0] ?? msg, anchor: top?.[1] ?? null }
+  })
+})
 </script>
 
 <template>
@@ -166,22 +230,26 @@ const intakeTypes = [
         <h2 class="text-sm font-semibold text-slate-700">Détails de l'ordonnance</h2>
 
         <div>
-          <label class="field-label">Prescripteur</label>
+          <label class="field-label" for="field-prescriber">Prescripteur</label>
           <input
+            id="field-prescriber"
             v-model="form.prescriber_name"
             type="text"
             class="field-input"
+            :class="{ 'field-input-error': err('prescriber_name') }"
             placeholder="Dr. Dupont"
           />
           <p v-if="err('prescriber_name')" class="field-error">{{ err('prescriber_name') }}</p>
         </div>
 
         <div>
-          <label class="field-label">Date de l'ordonnance</label>
+          <label class="field-label" for="field-prescribed-at">Date de l'ordonnance</label>
           <input
+            id="field-prescribed-at"
             v-model="form.prescribed_at"
             type="date"
             class="field-input"
+            :class="{ 'field-input-error': err('prescribed_at') }"
           />
           <p v-if="err('prescribed_at')" class="field-error">{{ err('prescribed_at') }}</p>
         </div>
@@ -226,6 +294,7 @@ const intakeTypes = [
       <section
         v-for="(item, i) in form.items"
         :key="i"
+        :id="`item-${i}`"
         class="bg-white rounded-xl p-4 shadow-sm space-y-4"
       >
         <!-- En-tête item -->
@@ -255,6 +324,7 @@ const intakeTypes = [
               v-model="item.medication_name"
               type="text"
               class="field-input"
+              :class="{ 'field-input-error': itemErr(i, 'medication_name') }"
               placeholder="Paracétamol"
               autocomplete="off"
             />
@@ -291,7 +361,7 @@ const intakeTypes = [
         </div>
 
         <!-- ── Fixe : éditeur de paliers ──────────────────────────────── -->
-        <div v-if="item.intake_type === 'fixe'" class="space-y-3">
+        <div v-if="item.intake_type === 'fixe'" :id="`item-${i}-phases`" class="space-y-3">
           <PhaseEditor
             v-model:phases="item.phases"
             :errors="form.errors"
@@ -404,6 +474,7 @@ const intakeTypes = [
             v-model="item.posologie_brute"
             rows="2"
             class="field-input resize-none"
+            :class="{ 'field-input-error': itemErr(i, 'posologie_brute') }"
             placeholder="Telle que rédigée sur l'ordonnance…"
           />
           <p v-if="itemErr(i, 'posologie_brute')" class="field-error">{{ itemErr(i, 'posologie_brute') }}</p>
@@ -435,9 +506,26 @@ const intakeTypes = [
           <span v-if="form.processing">Enregistrement…</span>
           <span v-else>Enregistrer l'ordonnance</span>
         </button>
-        <p v-if="form.hasErrors" class="text-xs text-red-500 text-center mt-2">
-          Corrigez les erreurs ci-dessus avant de soumettre.
-        </p>
+        <div v-if="humanErrors.length" class="mt-3 rounded-xl bg-red-50 border border-red-200 px-4 py-3">
+          <p class="text-xs font-semibold text-red-700 mb-2">Avant d'enregistrer, complétez&nbsp;:</p>
+          <ul class="space-y-1">
+            <li v-for="(e, k) in humanErrors" :key="k">
+              <button
+                v-if="e.anchor"
+                type="button"
+                class="text-xs text-red-600 hover:text-red-800 hover:underline text-left flex items-start gap-1.5 transition-colors"
+                @click="scrollToAnchor(e.anchor)"
+              >
+                <span class="mt-0.5 text-red-400 flex-shrink-0">→</span>
+                <span>{{ e.label }}</span>
+              </button>
+              <p v-else class="text-xs text-red-600 flex items-start gap-1.5">
+                <span class="mt-0.5 text-red-400 flex-shrink-0">→</span>
+                <span>{{ e.label }}</span>
+              </p>
+            </li>
+          </ul>
+        </div>
       </div>
 
     </form>
