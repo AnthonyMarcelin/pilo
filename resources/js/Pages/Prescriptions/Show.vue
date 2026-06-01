@@ -7,7 +7,7 @@ const props = defineProps({
   prescription: { type: Object, required: true },
 })
 
-const showImage = ref(false)
+const showImage = ref(true)
 const archiving = ref(false)
 
 function formatDate(dateStr) {
@@ -104,11 +104,11 @@ const sourceLabel  = { scan: 'Scan IA', manual: 'Saisie manuelle' }
           </svg>
           <span>{{ showImage ? 'Masquer l\'ordonnance' : 'Voir l\'ordonnance' }}</span>
         </button>
-        <div v-if="showImage" class="mt-2 rounded-xl overflow-hidden border border-slate-100">
+        <div v-if="showImage" class="mt-2 rounded-xl border border-slate-100">
           <img
             :src="route('prescriptions.image', prescription.id)"
             alt="Image de l'ordonnance"
-            class="w-full object-contain max-h-[60vh]"
+            class="w-full h-auto block rounded-xl max-h-[70vh] object-contain"
           />
         </div>
       </div>

@@ -14,7 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class PrescriptionController extends Controller
 {
@@ -92,7 +92,7 @@ class PrescriptionController extends Controller
             ->with('success', 'Ordonnance archivée.');
     }
 
-    public function image(Request $request, Prescription $prescription): StreamedResponse
+    public function image(Request $request, Prescription $prescription): BinaryFileResponse
     {
         abort_if($prescription->user_id !== $request->user()->id, 403);
         abort_unless($prescription->source_image_path, 404);
@@ -103,13 +103,12 @@ class PrescriptionController extends Controller
         $path = Storage::disk('local')->path($prescription->source_image_path);
         abort_unless(file_exists($path), 404);
 
-        $mime = mime_content_type($path) ?: 'image/jpeg';
-
-        return response()->streamDownload(
-            fn () => readfile($path),
-            basename($prescription->source_image_path),
-            ['Content-Type' => $mime],
-        );
+        // response()->file() sert le fichier avec Content-Disposition: inline
+        // (affichage dans le navigateur / <img>) plutôt que attachment (download).
+        // Supporte aussi les requêtes Range (nécessaire pour mobile/PWA).
+        return response()->file($path, [
+            'Content-Type' => mime_content_type($path) ?: 'image/jpeg',
+        ]);
     }
 
     public function create(): Response
