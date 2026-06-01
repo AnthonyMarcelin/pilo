@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\File;
 use Inertia\Inertia;
 use Inertia\Response;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ScanController extends Controller
 {
@@ -125,7 +125,7 @@ class ScanController extends Controller
      * Autorisation     : where('user_id') ci-dessous garantit que l'utilisateur
      *                    ne peut accéder qu'à ses propres scans.
      */
-    public function image(Request $request, string $id): StreamedResponse
+    public function image(Request $request, string $id): BinaryFileResponse
     {
         $scan = PrescriptionScan::where('user_id', $request->user()->id)
             ->findOrFail($id);
@@ -139,12 +139,10 @@ class ScanController extends Controller
         $path = Storage::disk('local')->path($scan->source_image_path);
         abort_unless(file_exists($path), 404);
 
-        $mime = mime_content_type($path) ?: 'image/jpeg';
-
-        return response()->streamDownload(
-            fn () => readfile($path),
-            basename($scan->source_image_path),
-            ['Content-Type' => $mime],
-        );
+        // response()->file() → Content-Disposition: inline (affichage navigateur).
+        // Supporte les requêtes Range pour mobile/PWA.
+        return response()->file($path, [
+            'Content-Type' => mime_content_type($path) ?: 'image/jpeg',
+        ]);
     }
 }
