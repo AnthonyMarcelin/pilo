@@ -3,6 +3,7 @@
 namespace App\Services\Ocr;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Client HTTP vers Ollama pour la normalisation JSON contrainte.
@@ -125,10 +126,13 @@ Nom du médicament seul, SANS la concentration.
 Correct : "Paroxétine", "Lévothyroxine", "Metformine".
 Incorrect : "Paroxétine 20 mg" (le "20 mg" va dans dosage).
 
-RÈGLE 5 — dosage :
-Concentration du médicament telle qu'écrite (quantité + unité) : "500 mg", "150 microgrammes",
-"7,5 mg", "5 mg/5 mL", "10 000 UI". Ce n'est PAS le nombre de comprimés à prendre.
-null si absente.
+RÈGLE 5 — dosage (TOUJOURS extraire si présent) :
+La concentration/teneur du médicament, telle qu'écrite dans le texte (quantité + unité).
+Ce n'est PAS le nombre de comprimés à prendre — c'est la teneur de la forme pharmaceutique.
+Formats : "500 mg", "150 microgrammes", "7,5 mg", "5 mg/5 mL", "10 000 UI", "0,5%".
+MÊME si le dosage est accolé au nom ("Amlodipine 5 mg" → name:"Amlodipine" dosage:"5 mg").
+MÊME si le dosage est en texte joint ("Diazépam comprimé 5mg" → dosage:"5 mg").
+null UNIQUEMENT si aucune concentration ne figure nulle part dans le texte pour ce médicament.
 
 RÈGLE 6 — intake_type :
 - "fixe"     : horaire régulier (matin / midi / soir / coucher).
@@ -204,6 +208,14 @@ PROMPT;
         }
 
         $raw = $response->json('response', '');
+
+        // Log de diagnostic — permet de voir si le dosage est produit par le modèle
+        // ou perdu dans le mapping. Visible via : docker compose logs queue --tail=100
+        // Limité à 3000 chars pour ne pas saturer les logs.
+        Log::info('[OllamaClient] JSON brut', [
+            'model'    => $this->model,
+            'response' => mb_substr($raw, 0, 3000),
+        ]);
 
         return $this->parseJsonDefensively($raw);
     }
