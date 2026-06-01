@@ -8,6 +8,7 @@ use App\Services\ImageConverter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\File;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -119,6 +120,10 @@ class ScanController extends Controller
 
     /**
      * Sert l'image d'ordonnance originale (pour affichage dans le formulaire de validation).
+     *
+     * Authentification : via auth middleware (routes/web.php).
+     * Autorisation     : where('user_id') ci-dessous garantit que l'utilisateur
+     *                    ne peut accéder qu'à ses propres scans.
      */
     public function image(Request $request, string $id): StreamedResponse
     {
@@ -127,7 +132,11 @@ class ScanController extends Controller
 
         abort_unless($scan->source_image_path, 404);
 
-        $path = storage_path("app/{$scan->source_image_path}");
+        // Storage::disk('local')->path() utilise la racine configurée dans
+        // config/filesystems.php (storage/app/private en Laravel 11).
+        // NE PAS utiliser storage_path("app/{$path}") qui hardcode "app/" et
+        // ignore la clé 'root' du disque → 404 quand root = storage/app/private.
+        $path = Storage::disk('local')->path($scan->source_image_path);
         abort_unless(file_exists($path), 404);
 
         $mime = mime_content_type($path) ?: 'image/jpeg';

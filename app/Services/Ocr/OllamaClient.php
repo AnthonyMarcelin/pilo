@@ -16,7 +16,7 @@ class OllamaClient
 {
     public function __construct(
         private readonly string $baseUrl,
-        private readonly string $model           = 'qwen2.5:1.5b-instruct',
+        private readonly string $model           = 'qwen2.5:3b-instruct',
         private readonly int    $timeoutSeconds  = 300, // 5 min — Qwen 3B peut être lent sous charge
     ) {}
 
@@ -74,6 +74,9 @@ class OllamaClient
     /**
      * Prompt de normalisation envoyé à Ollama.
      *
+     * Objectifs : complétude (tous les médicaments), dosage isolé, paliers dégressifs,
+     * anti-hallucination stricte.
+     *
      * @param  array  $blocks  Blocs ordonnés retournés par PaddleVlClient.
      */
     private function buildPrompt(array $blocks): string
@@ -87,32 +90,77 @@ class OllamaClient
         }
 
         return <<<PROMPT
-Tu es un assistant pharmaceutique. Tu normalises les blocs OCR d'une ordonnance vers un JSON structuré.
+Tu es un pharmacien assistant qui extrait les données d'une ordonnance médicale en JSON structuré.
 
-RÈGLES :
-1. NE JAMAIS INVENTER : utilise null si absent ou incertain.
-2. posologie_brute : COPIER VERBATIM le texte OCR de la posologie, sans résumer.
-3. intake_type : "fixe" si horaire régulier (matin/midi/soir/coucher), "si_besoin" si sur indication/PRN, "autre" sinon.
-4. morning/noon/evening/bedtime : nombre de prises (ex: 1, 2, 0.5). null si non spécifié ou si phases non vide.
-5. phases : remplir UNIQUEMENT si la posologie est dégressive (plusieurs paliers avec durées distinctes).
-   - Si phases non vide → morning/noon/evening/bedtime de l'item DOIVENT être null (les phases priment).
-   - Si dose simple ET schéma par paliers pour le MÊME médicament → les paliers priment, ignorer la dose simple.
-6. duration_days : durée totale en jours (nombre entier). qsp_days si "QSP X jours/mois".
-7. Date format : YYYY-MM-DD.
+═══════════ RÈGLES FONDAMENTALES ═══════════
 
-EXEMPLE :
-Blocs : "Amoxicilline 500 mg / 1 gélule matin midi soir pendant 7 jours / Dr. Bernard / 15/03/2026"
-→ {"prescriber_name":"Dr. Bernard","prescribed_at":"2026-03-15","items":[{"medication_name":"Amoxicilline","dosage":"500 mg","intake_type":"fixe","morning":1,"noon":1,"evening":1,"bedtime":null,"condition":null,"max_per_day":null,"duration_days":7,"qsp_days":null,"posologie_brute":"1 gélule matin midi soir pendant 7 jours","phases":[]}]}
+RÈGLE 1 — COMPLÉTUDE (erreur médicale si non respectée) :
+Extrais ABSOLUMENT TOUS les médicaments présents dans les blocs, sans exception.
+Lis le texte de haut en bas. Pour chaque médicament listé, crée un item JSON.
+Si l'ordonnance contient N médicaments, ton JSON doit contenir N items. Ne saute aucune ligne.
 
-EXEMPLE DÉGRESSIF :
-Blocs : "Prednisolone 20 mg / 2 cp matin 5j puis 1 cp matin 5j puis arrêt"
-→ {"prescriber_name":null,"prescribed_at":null,"items":[{"medication_name":"Prednisolone","dosage":"20 mg","intake_type":"fixe","morning":null,"noon":null,"evening":null,"bedtime":null,"condition":null,"max_per_day":null,"duration_days":null,"qsp_days":null,"posologie_brute":"2 cp matin 5j puis 1 cp matin 5j puis arrêt","phases":[{"duration_days":5,"morning":2,"noon":null,"evening":null,"bedtime":null},{"duration_days":5,"morning":1,"noon":null,"evening":null,"bedtime":null}]}]}
+RÈGLE 2 — ANTI-INVENTION (règle de sécurité absolue) :
+Tout champ absent ou illisible dans le texte = null.
+N'invente jamais un médicament, un dosage, une posologie ou une date.
+En cas de doute, null vaut mieux qu'une valeur inventée.
 
-EXEMPLE SI BESOIN :
-Blocs : "Paracétamol 1000 mg / si douleur, max 4 comprimés/jour"
-→ {"prescriber_name":null,"prescribed_at":null,"items":[{"medication_name":"Paracétamol","dosage":"1000 mg","intake_type":"si_besoin","morning":null,"noon":null,"evening":null,"bedtime":null,"condition":"si douleur","max_per_day":4,"duration_days":null,"qsp_days":null,"posologie_brute":"si douleur, max 4 comprimés/jour","phases":[]}]}
+RÈGLE 3 — medication_name :
+Nom du médicament seul, SANS la concentration/dosage.
+Exemples corrects : "Paroxétine", "Lévothyroxine", "Metformine 850" (si le chiffre fait partie du nom commercial).
+Exemples INCORRECTS : "Paroxétine 20 mg" (le "20 mg" doit aller dans dosage).
 
-BLOCS OCR DE L'ORDONNANCE (ordonnés par position de lecture) :
+RÈGLE 4 — dosage :
+La concentration du médicament telle qu'écrite sur l'ordonnance (quantité + unité).
+Ce n'est PAS le nombre de comprimés à prendre — c'est la teneur du médicament.
+Formats courants : "500 mg", "150 microgrammes", "7,5 mg", "5 mg/5 mL", "10 000 UI".
+Si la concentration figure dans le texte : extraire dans dosage.
+Si absente : null.
+
+RÈGLE 5 — intake_type :
+- "fixe"     : prise à horaire régulier (matin / midi / soir / coucher).
+- "si_besoin": prise conditionnelle (si douleur, si fièvre, au besoin, PRN).
+- "autre"    : rythme irrégulier non planifiable (ex : 1 jour sur 2, hebdomadaire).
+
+RÈGLE 6 — morning / noon / evening / bedtime :
+Nombre d'unités par moment de prise (1, 0.5, 2…).
+null si intake_type ≠ "fixe" OU si phases[] est non vide.
+
+RÈGLE 7 — phases[] (PALIERS DÉGRESSIFS — règle critique) :
+Utilise phases[] quand la posologie varie dans le temps avec des durées explicites.
+Signaux dans le texte : "puis", "ensuite", "progressivement", durées successives.
+Exemples de formulations dégressives :
+  - "2 cp/j pendant 7j PUIS 1 cp/j pendant 15j PUIS arrêt"
+  - "3 cp matin pendant 5 jours, puis 2 cp pendant 5 jours, puis 1 cp jusqu'à arrêt"
+  - "Semaine 1 : 1 cp/j — Semaine 2 : 1 cp tous les 2 jours"
+→ Crée un objet phase par palier : {"duration_days": N, "morning": X, "noon": Y, "evening": Z, "bedtime": W}.
+→ Si phases[] est non vide : morning/noon/evening/bedtime de l'item parent DOIVENT être null.
+→ Si dose simple ET paliers pour le même médicament → les paliers priment, dose simple ignorée.
+
+RÈGLE 8 — posologie_brute :
+Copier VERBATIM le texte de posologie tel que lu. Toujours rempli (jamais null).
+
+RÈGLE 9 — duration_days / qsp_days :
+duration_days = durée totale en jours (entier). qsp_days = "quantité suffisante pour X jours".
+
+RÈGLE 10 — Dates :
+Format YYYY-MM-DD. null si absente ou illisible.
+
+═══════════ EXEMPLES ═══════════
+
+EXEMPLE 1 — Médicament simple :
+Blocs : "[1|text] Dr. Bernard / 15/03/2026 [2|text] Amoxicilline 500 mg / 1 gélule matin midi soir / 7 jours"
+→ {"prescriber_name":"Dr. Bernard","prescribed_at":"2026-03-15","items":[{"medication_name":"Amoxicilline","dosage":"500 mg","intake_type":"fixe","morning":1,"noon":1,"evening":1,"bedtime":null,"condition":null,"max_per_day":null,"duration_days":7,"qsp_days":null,"posologie_brute":"1 gélule matin midi soir 7 jours","phases":[]}]}
+
+EXEMPLE 2 — Palier dégressif :
+Blocs : "[1|text] Prednisolone 20 mg / 2 cp matin pendant 5j PUIS 1 cp matin pendant 5j PUIS arrêt"
+→ {"prescriber_name":null,"prescribed_at":null,"items":[{"medication_name":"Prednisolone","dosage":"20 mg","intake_type":"fixe","morning":null,"noon":null,"evening":null,"bedtime":null,"condition":null,"max_per_day":null,"duration_days":10,"qsp_days":null,"posologie_brute":"2 cp matin pendant 5j PUIS 1 cp matin pendant 5j PUIS arrêt","phases":[{"duration_days":5,"morning":2,"noon":null,"evening":null,"bedtime":null},{"duration_days":5,"morning":1,"noon":null,"evening":null,"bedtime":null}]}]}
+
+EXEMPLE 3 — Si besoin + plusieurs médicaments :
+Blocs : "[1|text] Paracétamol 1000 mg / si douleur max 4 cp/j [2|text] Ibuprofène 400 mg / 1 cp matin soir 5j"
+→ {"prescriber_name":null,"prescribed_at":null,"items":[{"medication_name":"Paracétamol","dosage":"1000 mg","intake_type":"si_besoin","morning":null,"noon":null,"evening":null,"bedtime":null,"condition":"si douleur","max_per_day":4,"duration_days":null,"qsp_days":null,"posologie_brute":"si douleur max 4 cp/j","phases":[]},{"medication_name":"Ibuprofène","dosage":"400 mg","intake_type":"fixe","morning":1,"noon":null,"evening":1,"bedtime":null,"condition":null,"max_per_day":null,"duration_days":5,"qsp_days":null,"posologie_brute":"1 cp matin soir 5j","phases":[]}]}
+
+═══════════ BLOCS OCR (extraire TOUS les médicaments) ═══════════
+
 {$blockText}
 PROMPT;
     }
