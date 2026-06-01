@@ -94,9 +94,11 @@ class ImportBdpm extends Command
         $upserted = 0;
 
         foreach ($cip as $cis => $data) {
-            // Indication : propre d'abord, sinon celle de l'originator (générique)
-            $indication = $smr[$cis]
-                ?? ($gener[$cis] ? ($smr[$gener[$cis]] ?? null) : null);
+            // Indication : propre d'abord, sinon héritée de l'originator (générique).
+            // $gener[$cis] peut pointer vers un CIS absent de $smr → isset() obligatoire
+            // pour éviter "Undefined array key" sur $smr[$orig].
+            $orig       = $gener[$cis] ?? null;
+            $indication = $smr[$cis] ?? ($orig !== null ? ($smr[$orig] ?? null) : null);
 
             MedicationReference::updateOrCreate(
                 ['cis' => $cis],

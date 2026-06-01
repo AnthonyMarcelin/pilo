@@ -178,17 +178,18 @@ final class BdpmParser
     /**
      * CIS_COMPO_bdpm.txt → CIS → substance active (DCI/INN).
      *
-     * Colonnes (tab, sans en-tête) :
+     * Colonnes réelles (tab, sans en-tête, 8 colonnes) :
      *   0  CIS
-     *   1  Code substance
-     *   2  Nom de la substance  ← DCI
-     *   3  Dosage de la substance
-     *   4  Référence du dosage
-     *   5  Nature du composant  (SA = substance active, FT = fraction thérapeutique)
-     *   6  Numéro de liaison SA/FT
+     *   1  Désignation de l'élément pharmaceutique (ex : "comprimé pelliculé")
+     *   2  Code substance (numérique)
+     *   3  Nom de la substance  ← DCI (ex : "AMLODIPINE", "LÉVOTHYROXINE SODIQUE")
+     *   4  Dosage de la substance
+     *   5  Référence de ce dosage
+     *   6  Nature du composant  (SA = substance active, FT = fraction thérapeutique)
+     *   7  Numéro de liaison SA/FT
      *
      * On garde uniquement les lignes de type "SA" pour la substance principale.
-     * Si plusieurs SA pour un CIS (ex : associations), on concatène avec " / ".
+     * Si plusieurs SA pour un CIS (ex : associations fixes), on concatène avec " / ".
      *
      * @return array<string, string>  CIS → nom de la substance (DCI)
      */
@@ -198,13 +199,13 @@ final class BdpmParser
 
         foreach ($this->readLines($filePath) as $line) {
             $cols = explode("\t", $line);
-            if (count($cols) < 6) {
+            if (count($cols) < 7) {
                 continue;
             }
 
-            $cis     = trim($cols[0]);
-            $nom     = trim($cols[2]);
-            $nature  = strtoupper(trim($cols[5]));
+            $cis    = trim($cols[0]);
+            $nom    = trim($cols[3]);  // col 3 = Nom substance, pas col 2 (= code numérique)
+            $nature = strtoupper(trim($cols[6]));  // col 6 = Nature (SA/FT)
 
             if ($cis === '' || $nom === '' || $nature !== 'SA') {
                 continue;
