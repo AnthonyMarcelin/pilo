@@ -24,7 +24,7 @@ class ImportBdpm extends Command
                             {--path= : Chemin vers les fichiers BDPM (défaut : storage/app/bdpm)}
                             {--dry-run : Affiche les stats sans écrire en base}';
 
-    protected $description = 'Importe le référentiel BDPM (CIS_CIP + CIS_HAS_SMR + CIS_GENER)';
+    protected $description = 'Importe le référentiel BDPM (CIS_CIP requis ; SMR, GENER, COMPO optionnels)';
 
     public function handle(BdpmParser $parser): int
     {
@@ -33,30 +33,45 @@ class ImportBdpm extends Command
 
         $this->line("Répertoire BDPM : {$path}");
 
-        // ── 1. Vérification de la présence des fichiers ───────────────────────
-        $required = ['CIS_CIP_bdpm.txt', 'CIS_HAS_SMR_bdpm.txt', 'CIS_GENER_bdpm.txt'];
-        foreach ($required as $file) {
-            if (! file_exists("{$path}/{$file}")) {
-                $this->error("Fichier manquant : {$path}/{$file}");
-                return Command::FAILURE;
-            }
+        // ── 1. Seul fichier vraiment requis : CIS_CIP (base de la boucle) ─────
+        $cipPath = "{$path}/CIS_CIP_bdpm.txt";
+        if (! file_exists($cipPath)) {
+            $this->error("Fichier requis manquant : {$cipPath}");
+            $this->line('  Télécharge-le depuis : https://base-donnees-publique.medicaments.gouv.fr/telechargement.php');
+            return Command::FAILURE;
         }
 
         // ── 2. Parsing ────────────────────────────────────────────────────────
+
+        // Obligatoire
         $this->info('Lecture CIS_CIP…');
-        $cip = $parser->parseCisCip("{$path}/CIS_CIP_bdpm.txt");
+        $cip = $parser->parseCisCip($cipPath);
         $this->line(sprintf('  → %d entrées CIS/CIP', count($cip)));
 
-        $this->info('Lecture CIS_HAS_SMR…');
-        $smr = $parser->parseCisHasSMR("{$path}/CIS_HAS_SMR_bdpm.txt");
-        $this->line(sprintf('  → %d indications SMR', count($smr)));
+        // Optionnel — indications officielles (libellé SMR)
+        $smr      = [];
+        $smrPath  = "{$path}/CIS_HAS_SMR_bdpm.txt";
+        if (file_exists($smrPath)) {
+            $this->info('Lecture CIS_HAS_SMR…');
+            $smr = $parser->parseCisHasSMR($smrPath);
+            $this->line(sprintf('  → %d indications SMR', count($smr)));
+        } else {
+            $this->warn('CIS_HAS_SMR_bdpm.txt absent — indication sera null pour tous les médicaments.');
+        }
 
-        $this->info('Lecture CIS_GENER…');
-        $gener = $parser->parseCisGener("{$path}/CIS_GENER_bdpm.txt");
-        $this->line(sprintf('  → %d liens générique→originator', count($gener)));
+        // Optionnel — lien générique → originator (hérite de l'indication SMR)
+        $gener     = [];
+        $generPath = "{$path}/CIS_GENER_bdpm.txt";
+        if (file_exists($generPath)) {
+            $this->info('Lecture CIS_GENER…');
+            $gener = $parser->parseCisGener($generPath);
+            $this->line(sprintf('  → %d liens générique→originator', count($gener)));
+        } else {
+            $this->warn('CIS_GENER_bdpm.txt absent — les génériques n\'hériteront pas de l\'indication de leur référent.');
+        }
 
-        // CIS_COMPO est optionnel — fournit la DCI pour le matching par nom
-        $compo = [];
+        // Optionnel — substance active (DCI) pour le matching par nom
+        $compo     = [];
         $compoPath = "{$path}/CIS_COMPO_bdpm.txt";
         if (file_exists($compoPath)) {
             $this->info('Lecture CIS_COMPO…');
