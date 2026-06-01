@@ -41,9 +41,19 @@ it('store → accepte une image valide et dispatche ProcessPrescriptionScan', fu
     Storage::disk('local')->assertExists($scan->source_image_path);
 });
 
-it('store → rejette une non-image', function () {
-    $pdf = UploadedFile::fake()->create('doc.pdf', 500, 'application/pdf');
-    $this->post(route('scans.store'), ['image' => $pdf])
+it('store → accepte un PDF et dispatche ProcessPrescriptionScan', function () {
+    $pdf = UploadedFile::fake()->create('ordonnance.pdf', 500, 'application/pdf');
+    $response = $this->post(route('scans.store'), ['image' => $pdf]);
+
+    $response->assertRedirect();
+    Queue::assertPushed(ProcessPrescriptionScan::class);
+    expect(PrescriptionScan::count())->toBe(1);
+    Storage::disk('local')->assertExists(PrescriptionScan::first()->source_image_path);
+});
+
+it('store → rejette un format non supporté (txt)', function () {
+    $txt = UploadedFile::fake()->create('note.txt', 10, 'text/plain');
+    $this->post(route('scans.store'), ['image' => $txt])
         ->assertSessionHasErrors('image');
 });
 

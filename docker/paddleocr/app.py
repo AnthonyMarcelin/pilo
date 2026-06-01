@@ -12,7 +12,21 @@ Architecture :
     PaddleOCRVL   = layout local + inférence VLM déportée (llama-cpp-server).
   Les arguments vl_rec_backend / vl_rec_server_url n'existent que sur PaddleOCRVL.
 
+Redimensionnement obligatoire (MAX_SIDE = 1500) :
+  PaddleOCR-VL est basé sur Qwen2-VL. Chaque patch 28×28 px = 1 token vision.
+  Photo iPhone 3024×4032 → ~15 000 tokens → dépasse --ctx-size 4096 du llama-server
+  → l'image est tronquée → AUCUN BLOC EXTRAIT malgré 9 min d'inférence.
+  À 1500×1125 → ~2200 tokens vision + ~500 texte ≈ 2700 < 4096. ✓
+  Gain de temps : 4032px → 1500px = ×7 moins de pixels → inférence ~2 min.
+
+Support PDF :
+  POST /ocr accepte application/pdf en plus de image/*.
+  Rasterisation via pypdfium2 (disponible via paddlex[ocr]) : scale=2 ≈ 200 DPI.
+  Chaque page est redimensionnée (MAX_SIDE) puis inférée séquentiellement.
+  block_order décalé entre pages pour maintenir l'ordre de lecture global.
+
 Contrat API POST /ocr :
+  Accepte : image/* (JPEG, PNG, WebP, …) ou application/pdf.
   Retourne des blocs ordonnés préservant la spatialité de l'ordonnance.
   block_order = ordre de lecture (essentiel pour associer nom → dosage → posologie).
   block_label = "text" | "table" | "figure" — utilisé par l'étape Ollama.
@@ -22,20 +36,10 @@ Contrat API POST /ocr :
   {
     "filename": "ordonnance.jpg",
     "blocks": [
-      {
-        "block_id": 1,
-        "block_order": 1,
-        "block_label": "text",
-        "block_content": "Dr. Martin Paul, Médecin généraliste",
-        "block_bbox": [x1, y1, x2, y2]
-      },
-      {
-        "block_id": 2,
-        "block_order": 2,
-        "block_label": "table",
-        "block_content": "<table>...</table>",
-        "block_bbox": [x1, y1, x2, y2]
-      }
+      {"block_id": 1, "block_order": 1, "block_label": "text",
+       "block_content": "Dr. Martin Paul", "block_bbox": [x1, y1, x2, y2]},
+      {"block_id": 2, "block_order": 2, "block_label": "table",
+       "block_content": "<table>...</table>", "block_bbox": [x1, y1, x2, y2]}
     ],
     "markdown_preview": "..."
   }
@@ -52,12 +56,18 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+from PIL import Image as PILImage
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 
 # URL BASE du sidecar llama-server (sans /v1 — PaddleOCRVL ajoute le chemin).
-# La variable d'env LLAMA_SERVER_URL permet de surcharger en dev/test.
 LLAMA_SERVER_URL = os.environ.get("LLAMA_SERVER_URL", "http://llama-server:8111")
+
+# Longueur maximale du grand côté de l'image avant inférence VLM (pixels).
+# Calculé pour tenir dans --ctx-size 4096 de llama-server (Qwen2-VL, patch 28×28) :
+#   1500×1125 → ceil(1500/28)×ceil(1125/28) = 54×41 = 2214 tokens vision < 4096. ✓
+# Augmenter MAX_SIDE nécessite d'augmenter --ctx-size en conséquence.
+MAX_SIDE = 1500
 
 app = FastAPI(title="PaddleOCR-VL service", version="1.0.0")
 
@@ -75,7 +85,7 @@ def get_pipeline():
       Appel    : pipeline.predict(path) → list[ResultObject]
       Résultat : results[0].json["parsing_res_list"] → list de blocs
 
-    vl_rec_backend valeurs valides :
+    vl_rec_backend valeurs valides (paddleX 3.4.3 GenAIConfig) :
       "native" | "llama-cpp-server" | "vllm-server" | "sglang-server" |
       "fastdeploy-server" | "mlx-vlm-server"
     """
@@ -92,66 +102,153 @@ def get_pipeline():
     return _pipeline
 
 
+def _resize_for_ocr(src_path: str) -> tuple:
+    """
+    Redimensionne l'image src_path si son grand côté dépasse MAX_SIDE.
+
+    Retourne (chemin_final, new_file_created).
+    - new_file_created=False : l'image est déjà dans les limites, retourne src_path.
+    - new_file_created=True  : retourne un nouveau fichier tmp JPEG à supprimer après usage.
+
+    Qualité JPEG 85 : bon compromis OCR/taille. LANCZOS : meilleur filtre pour downscale.
+    """
+    img = PILImage.open(src_path)
+    w, h = img.size
+    if max(w, h) <= MAX_SIDE:
+        img.close()
+        return src_path, False
+
+    scale = MAX_SIDE / max(w, h)
+    new_w, new_h = round(w * scale), round(h * scale)
+    img = img.resize((new_w, new_h), PILImage.LANCZOS)
+
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_r:
+        resized_path = tmp_r.name
+    img.save(resized_path, "JPEG", quality=85)
+    img.close()
+    return resized_path, True
+
+
+def _pdf_to_images(pdf_path: str) -> list:
+    """
+    Rasterise chaque page d'un PDF en fichier JPEG temporaire.
+    Retourne la liste des chemins créés (tous à supprimer après usage).
+
+    pypdfium2 est disponible via paddlex[ocr]==3.4.3 (dépendance directe pypdfium2>=4).
+    scale=2 → ~200 DPI pour une page A4 standard (~1654×2339 px avant redim par MAX_SIDE).
+    Le redimensionnement MAX_SIDE est appliqué ensuite par _resize_for_ocr().
+    """
+    import pypdfium2 as pdfium  # type: ignore[import]
+
+    pdf = pdfium.PdfDocument(pdf_path)
+    paths = []
+    try:
+        for i in range(len(pdf)):
+            page = pdf[i]
+            bitmap = page.render(scale=2)
+            img = bitmap.to_pil()
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                path = tmp.name
+            img.save(path, "JPEG", quality=85)
+            img.close()
+            paths.append(path)
+    finally:
+        pdf.close()
+    return paths
+
+
 @app.get("/health")
 def health():
     """Health-check — retourne 200 quand le service est démarré."""
-    return {"status": "ok", "llama_server_url": LLAMA_SERVER_URL}
+    return {"status": "ok", "llama_server_url": LLAMA_SERVER_URL, "max_side": MAX_SIDE}
 
 
 @app.post("/ocr")
 async def run_ocr(file: UploadFile = File(...)):
     """
-    POST /ocr — reçoit une image d'ordonnance, retourne des blocs ordonnés.
+    POST /ocr — reçoit une image ou un PDF d'ordonnance, retourne des blocs ordonnés.
 
-    Le résultat préserve l'ordre de lecture spatial (block_order) et le type de bloc
-    (block_label : text / table / figure / formula / seal).
-    Les blocs "table" ont un block_content HTML (<table>…</table>).
-    Les blocs "text" ont un block_content en texte plat.
+    Accepte : image/* (JPEG, PNG, WebP…) ou application/pdf.
+    Pour les PDF multi-pages, chaque page est traitée séquentiellement.
+    Le block_order des pages suivantes est décalé pour maintenir l'ordre global.
 
     Ce résultat est transmis tel quel à Ollama pour normalisation JSON.
     NE PAS aplatir en texte brut avant d'envoyer à Ollama — l'ordre spatial est
     l'information critique pour associer nom médicament → dosage → posologie.
     """
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Image attendue (image/*)")
+    is_pdf   = (file.content_type == "application/pdf")
+    is_image = bool(file.content_type and file.content_type.startswith("image/"))
+
+    if not (is_pdf or is_image):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Image (image/*) ou PDF (application/pdf) attendu. Reçu : {file.content_type}",
+        )
 
     data = await file.read()
-    original_filename = file.filename or "ordonnance.jpg"
+    original_filename = file.filename or ("ordonnance.pdf" if is_pdf else "ordonnance.jpg")
 
-    tmp_path = None
+    tmp_path:      str | None = None   # fichier uploadé brut
+    pdf_img_paths: list       = []     # fichiers JPEG issus de la rasterisation PDF
+    resized_paths: list       = []     # fichiers JPEG redimensionnés
+    all_raw_blocks: list      = []
+
     try:
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        suffix = ".pdf" if is_pdf else ".jpg"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp_path = tmp.name
             tmp.write(data)
 
+        # Construire la liste des images à inférer (1 pour image, N pour PDF N pages)
+        if is_pdf:
+            image_paths    = _pdf_to_images(tmp_path)
+            pdf_img_paths  = image_paths
+        else:
+            image_paths = [tmp_path]
+
         pipeline = get_pipeline()
 
-        # predict() retourne list[ResultObject], un élément par image.
-        # Pour une image unique, on prend results[0].
-        results = pipeline.predict(tmp_path)
+        for img_path in image_paths:
+            # Redimensionner avant inférence — obligatoire pour tenir dans --ctx-size 4096.
+            inference_path, did_resize = _resize_for_ocr(img_path)
+            if did_resize:
+                resized_paths.append(inference_path)
+
+            results = pipeline.predict(inference_path)
+            if not results:
+                continue
+
+            page_blocks = results[0].json.get("parsing_res_list", [])
+
+            # Décaler block_order : les blocs des pages suivantes s'ordonnent après
+            # ceux des pages précédentes (offset = nombre total de blocs déjà collectés).
+            offset = len(all_raw_blocks)
+            for blk in page_blocks:
+                order = blk.get("block_order")
+                if order is not None:
+                    blk["block_order"] = order + offset
+
+            all_raw_blocks.extend(page_blocks)
 
     finally:
         if tmp_path is not None:
             Path(tmp_path).unlink(missing_ok=True)
+        for p in pdf_img_paths:
+            Path(p).unlink(missing_ok=True)
+        for p in resized_paths:
+            Path(p).unlink(missing_ok=True)
 
-    # --- Extraction des blocs depuis parsing_res_list ---
-    # Structure vérifiée : results[0].json["parsing_res_list"] → list[dict]
-    # Clés : block_id, block_order, block_label, block_content, block_bbox (np.ndarray)
-
+    # --- Normalisation des blocs en contrat API ---
     blocks = []
     markdown_lines = []
 
-    raw_blocks: list = []
-    if results:
-        raw_blocks = results[0].json.get("parsing_res_list", [])
-
-    for idx, blk in enumerate(raw_blocks, start=1):
+    for idx, blk in enumerate(all_raw_blocks, start=1):
         block_order   = blk.get("block_order",   idx)
         block_label   = str(blk.get("block_label", "text")).lower()
         block_content = blk.get("block_content", "") or ""
         block_bbox    = blk.get("block_bbox", [])
 
-        # block_bbox est un np.ndarray — convertir en list Python avant tout traitement.
+        # block_bbox peut être un np.ndarray — convertir en list Python.
         if isinstance(block_bbox, np.ndarray):
             block_bbox = block_bbox.tolist()
 

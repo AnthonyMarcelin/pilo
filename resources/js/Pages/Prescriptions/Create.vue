@@ -25,7 +25,7 @@ async function onImageSelected(e) {
       forceFormData: true,
       onError: () => {
         uploading.value = false
-        alert('Erreur lors de l\'envoi de l\'image. Vérifiez le format (JPG, PNG).')
+        alert('Erreur lors de l\'envoi. Formats acceptés : JPG, PNG, HEIC, PDF (max 25 Mo).')
       },
     })
   } catch {
@@ -38,12 +38,18 @@ async function onImageSelected(e) {
   <AppLayout>
     <Head title="Ajouter — Pilo" />
 
-    <!-- Input fichier caché (capture=environment → caméra iOS en priorité) -->
+    <!--
+      Input fichier caché — PAS d'attribut capture.
+      Sur iOS/Safari, sans capture, l'OS affiche le menu natif :
+        • Photothèque
+        • Prendre une photo ou vidéo
+        • Parcourir (Fichiers / iCloud Drive) — PDF accessibles ici
+      accept inclut .heic (photos iPhone) et .pdf (ordonnances dématérialisées).
+    -->
     <input
       ref="scanInput"
       type="file"
-      accept="image/*"
-      capture="environment"
+      accept="image/*,.heic,.heif,application/pdf,.pdf"
       class="hidden"
       @change="onImageSelected"
     />
