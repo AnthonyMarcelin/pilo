@@ -175,6 +175,50 @@ final class BdpmParser
         return $result;
     }
 
+    /**
+     * CIS_COMPO_bdpm.txt → CIS → substance active (DCI/INN).
+     *
+     * Colonnes (tab, sans en-tête) :
+     *   0  CIS
+     *   1  Code substance
+     *   2  Nom de la substance  ← DCI
+     *   3  Dosage de la substance
+     *   4  Référence du dosage
+     *   5  Nature du composant  (SA = substance active, FT = fraction thérapeutique)
+     *   6  Numéro de liaison SA/FT
+     *
+     * On garde uniquement les lignes de type "SA" pour la substance principale.
+     * Si plusieurs SA pour un CIS (ex : associations), on concatène avec " / ".
+     *
+     * @return array<string, string>  CIS → nom de la substance (DCI)
+     */
+    public function parseCisCompo(string $filePath): array
+    {
+        $rows = [];
+
+        foreach ($this->readLines($filePath) as $line) {
+            $cols = explode("\t", $line);
+            if (count($cols) < 6) {
+                continue;
+            }
+
+            $cis     = trim($cols[0]);
+            $nom     = trim($cols[2]);
+            $nature  = strtoupper(trim($cols[5]));
+
+            if ($cis === '' || $nom === '' || $nature !== 'SA') {
+                continue;
+            }
+
+            $rows[$cis][] = $nom;
+        }
+
+        return array_map(
+            fn (array $names) => implode(' / ', array_unique($names)),
+            $rows,
+        );
+    }
+
     // ─── Helpers publics (testables séparément) ───────────────────────────────
 
     /**

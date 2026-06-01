@@ -36,24 +36,28 @@ class MedicationController extends Controller
                 $latest   = $group->first();
                 $isActive = $group->contains(fn ($item) => $item->prescription->status === 'active');
 
-                // Indication BDPM via cip_code (null si non renseigné)
+                // Indication BDPM : lookup CIP13 direct, sinon matching par nom
                 $indication     = null;
                 $originatorName = null;
                 $isGeneric      = false;
                 $cipCode = $group->first(fn ($i) => $i->cip_code)?->cip_code;
-                if ($cipCode) {
-                    $ref = MedicationReference::where('cip13', $cipCode)
-                        ->select('indication', 'name')
-                        ->first();
-                    $indication     = $ref?->indication;
-                    $originatorName = $ref?->name;
+                $ref     = $cipCode
+                    ? MedicationReference::where('cip13', $cipCode)->select('indication', 'name')->first()
+                    : null;
+
+                // Fallback : matching par nom normalisé (nom commercial ou DCI)
+                if ($ref === null) {
+                    $ref = self::matchByName($normalized);
+                }
+
+                if ($ref !== null) {
+                    $indication     = $ref->indication;
+                    $originatorName = $ref->name;
                     // Générique = premier mot du nom originator ≠ premier mot du nom item.
                     // Ex : "DEROXAT 20 mg, comprimé…" → "deroxat" ≠ "paroxétine" → générique.
                     // Ex : "LEVOTHYROX 100 µg, comprimé…" → "levothyrox" == "levothyrox" → originator.
-                    // On compare le premier token (avant espace ou virgule) pour ignorer
-                    // la forme galénique qui est toujours dans le nom de référence BDPM.
-                    $firstWord  = fn (string $s): string => explode(' ', mb_strtolower(trim($s)))[0];
-                    $isGeneric  = $originatorName !== null
+                    $firstWord = fn (string $s): string => explode(' ', mb_strtolower(trim($s)))[0];
+                    $isGeneric = $originatorName !== null
                         && $firstWord($originatorName) !== $firstWord($latest->medication_name);
                 }
 
@@ -74,5 +78,47 @@ class MedicationController extends Controller
             'active'   => $medications->filter(fn ($m) => $m['is_active'])->values(),
             'inactive' => $medications->filter(fn ($m) => ! $m['is_active'])->values(),
         ]);
+    }
+
+    /**
+     * Matching tolérant nom OCR → medication_references, sans code CIP.
+     *
+     * Stratégie (par ordre de priorité) :
+     *  1. DCI exacte : dci_name LIKE 'premier_mot%'   (lévothyroxine → LÉVOTHYROXINE SODIQUE)
+     *  2. Nom commercial : name LIKE 'premier_mot%'   (levothyrox → LEVOTHYROX 100 µg...)
+     *
+     * Normalisation : minuscules + translittération ASCII (accents → sans accent) pour
+     * contourner la limitation de LIKE SQLite sur les caractères accentués.
+     * Préférence aux entrées avec indication non-nulle.
+     */
+    private static function matchByName(string $normalized): ?MedicationReference
+    {
+        if (strlen($normalized) < 3) {
+            return null;
+        }
+
+        // Translittération UTF-8 → ASCII (é→e, à→a, ô→o…) pour LIKE insensible aux accents
+        $ascii     = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $normalized) ?: $normalized;
+        $firstWord = strtolower(explode(' ', $ascii)[0]);
+
+        if (strlen($firstWord) < 3) {
+            return null;
+        }
+
+        // 1. Substance active (DCI) — couvre "lévothyroxine" → entrée BDPM DCI
+        $ref = MedicationReference::whereRaw('LOWER(dci_name) LIKE ?', [$firstWord . '%'])
+            ->whereNotNull('indication')
+            ->select('indication', 'name')
+            ->first();
+
+        if ($ref !== null) {
+            return $ref;
+        }
+
+        // 2. Nom commercial — couvre "levothyrox", "amlodipine", "paroxetine"
+        return MedicationReference::whereRaw('LOWER(name) LIKE ?', [$firstWord . '%'])
+            ->whereNotNull('indication')
+            ->select('indication', 'name')
+            ->first();
     }
 }

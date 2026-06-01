@@ -55,6 +55,17 @@ class ImportBdpm extends Command
         $gener = $parser->parseCisGener("{$path}/CIS_GENER_bdpm.txt");
         $this->line(sprintf('  → %d liens générique→originator', count($gener)));
 
+        // CIS_COMPO est optionnel — fournit la DCI pour le matching par nom
+        $compo = [];
+        $compoPath = "{$path}/CIS_COMPO_bdpm.txt";
+        if (file_exists($compoPath)) {
+            $this->info('Lecture CIS_COMPO…');
+            $compo = $parser->parseCisCompo($compoPath);
+            $this->line(sprintf('  → %d substances actives (DCI)', count($compo)));
+        } else {
+            $this->warn('CIS_COMPO_bdpm.txt absent — dci_name non renseigné (matching DCI désactivé).');
+        }
+
         if ($dry) {
             $this->warn('[dry-run] Aucune écriture en base.');
             return Command::SUCCESS;
@@ -77,6 +88,7 @@ class ImportBdpm extends Command
                 [
                     'cip13'              => $data['cip13'],
                     'name'               => $data['name'],
+                    'dci_name'           => $compo[$cis] ?? null,
                     'presentation_label' => $data['presentation_label'],
                     'units_per_box'      => $data['units_per_box'],
                     'indication'         => $indication,
