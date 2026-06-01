@@ -11,6 +11,7 @@ use App\Services\DuplicateCheck;
 use App\Services\ImageConverter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -96,7 +97,10 @@ class PrescriptionController extends Controller
         abort_if($prescription->user_id !== $request->user()->id, 403);
         abort_unless($prescription->source_image_path, 404);
 
-        $path = storage_path("app/{$prescription->source_image_path}");
+        // Storage::disk('local')->path() respecte la racine configurée dans
+        // filesystems.php (storage/app/private en Laravel 11).
+        // Ne pas utiliser storage_path("app/...") qui ignore cette clé 'root'.
+        $path = Storage::disk('local')->path($prescription->source_image_path);
         abort_unless(file_exists($path), 404);
 
         $mime = mime_content_type($path) ?: 'image/jpeg';
