@@ -9,8 +9,9 @@ const props = defineProps({
   message: { type: String, default: 'Lecture de l\'ordonnance en cours…' },
 })
 
-const elapsed   = ref(0)
-const errorMsg  = ref(null)
+const elapsed       = ref(0)
+const errorMsg      = ref(null)
+const isCreditError = ref(false)
 let   timer     = null
 let   pollTimer = null
 
@@ -37,7 +38,10 @@ async function poll() {
     } else if (data.status === 'failed') {
       clearInterval(timer)
       clearInterval(pollTimer)
-      errorMsg.value = data.error_message || 'Lecture impossible.'
+      const msg = data.error_message || 'Lecture impossible.'
+      // Détecter l'erreur crédits Mistral pour afficher un message ciblé
+      isCreditError.value = msg.toLowerCase().includes('crédits mistral')
+      errorMsg.value = msg
     }
   } catch {
     // Erreur réseau temporaire — on continue de poller
@@ -90,6 +94,21 @@ function formatTime(s) {
         Comptez <strong class="text-slate-500">2 à 5 minutes</strong> selon la taille de l'ordonnance.
         Laissez la page ouverte — elle se met à jour automatiquement.
       </p>
+      <!-- Erreur crédits Mistral épuisés — message spécifique avec lien -->
+      <div v-else-if="isCreditError" class="max-w-xs space-y-2">
+        <p class="text-sm font-medium text-red-700">
+          Crédits Mistral insuffisants
+        </p>
+        <p class="text-xs text-red-600 leading-relaxed">
+          Le quota de l'API OCR est épuisé. Rechargez votre compte sur
+          <span class="font-medium">console.mistral.ai</span>,
+          puis relancez le scan.
+        </p>
+        <p class="text-xs text-slate-500 italic">
+          En attendant, utilisez la saisie manuelle ci-dessous.
+        </p>
+      </div>
+      <!-- Erreur générique -->
       <p v-else class="text-sm text-amber-700 max-w-xs">
         {{ errorMsg }} Vous pouvez saisir l'ordonnance manuellement.
       </p>

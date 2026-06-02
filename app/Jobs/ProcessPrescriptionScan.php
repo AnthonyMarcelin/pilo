@@ -3,11 +3,9 @@
 namespace App\Jobs;
 
 use App\Models\PrescriptionScan;
-use App\Services\Ocr\LocalOcrProvider;
+use App\Services\Ocr\MistralCreditException;
 use App\Services\Ocr\OcrException;
-use App\Services\Ocr\OllamaClient;
-use App\Services\Ocr\PaddleVlClient;
-use App\Services\Ocr\PrescriptionDraftMapper;
+use App\Services\Ocr\OcrProvider;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -65,18 +63,25 @@ class ProcessPrescriptionScan implements ShouldQueue
             }
 
             // ── 2. Pipeline OCR ───────────────────────────────────────────────
-            $provider = new LocalOcrProvider(
-                new PaddleVlClient(config('pilo.paddleocr_url')),
-                new OllamaClient(config('pilo.ollama_url'), config('pilo.ollama_model')),
-                new PrescriptionDraftMapper(),
-            );
-
-            $draft = $provider->extract($imagePath);
+            // Le driver est résolu par AppServiceProvider selon OCR_DRIVER dans .env :
+            //   'mistral' → MistralOcrProvider (API cloud)
+            //   'local'   → LocalOcrProvider  (PaddleOCR + Ollama)
+            $draft = app(OcrProvider::class)->extract($imagePath);
 
             // ── 3. Succès : stockage du brouillon ─────────────────────────────
             $scan->update([
                 'status' => 'done',
                 'draft'  => $draft->jsonSerialize(),
+            ]);
+
+        } catch (MistralCreditException $e) {
+            // Crédits Mistral épuisés : message spécifique passé tel quel au front
+            // (sans sanitisation — il ne contient pas de topologie interne).
+            Log::warning("ProcessPrescriptionScan {$this->scanId} : crédits Mistral — {$e->getMessage()}");
+
+            $scan->update([
+                'status'        => 'failed',
+                'error_message' => $e->getMessage(), // "Crédits Mistral insuffisants. Rechargez…"
             ]);
 
         } catch (OcrException $e) {
