@@ -32,6 +32,7 @@ yarn-error.log
 
 # --- Données / images d'ordonnances (santé : jamais versionnées) ---
 /storage/app/private
+/storage/app/bdpm
 *.sqlite
 *.sqlite-journal
 
