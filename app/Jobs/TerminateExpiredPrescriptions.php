@@ -24,19 +24,25 @@ class TerminateExpiredPrescriptions implements ShouldQueue
     {
         $today = Carbon::today();
 
+        // chunkById() utilise WHERE id > dernier_id LIMIT N au lieu d'OFFSET N.
+        // Avec each()/chunk(), les updates de statut en cours d'itération décalent
+        // l'offset du prochain lot → des ordonnances sont sautées.
+        // chunkById() est immunisé contre ce problème.
         Prescription::where('status', 'active')
             ->with('items')
-            ->each(function (Prescription $p) use ($today): void {
-                if ($p->items->isEmpty()) {
-                    return;
-                }
+            ->chunkById(200, function ($prescriptions) use ($today): void {
+                foreach ($prescriptions as $p) {
+                    if ($p->items->isEmpty()) {
+                        continue;
+                    }
 
-                $allDone = $p->items->every(
-                    fn ($item) => $item->end_date !== null && $item->end_date->lt($today)
-                );
+                    $allDone = $p->items->every(
+                        fn ($item) => $item->end_date !== null && $item->end_date->lt($today)
+                    );
 
-                if ($allDone) {
-                    $p->update(['status' => 'terminated']);
+                    if ($allDone) {
+                        $p->update(['status' => 'terminated']);
+                    }
                 }
             });
     }

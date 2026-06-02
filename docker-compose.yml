@@ -22,7 +22,7 @@ services:
         condition: service_started
     volumes:
       - ./:/var/www/html
-      - storage_images:/var/www/html/storage/app/prescriptions
+      - storage_images:/var/www/html/storage/app/private/prescriptions
       # Volume persistant pour la base SQLite (survit aux rebuilds et à docker compose down/up)
       - sqlite_data:/var/sqlite
     restart: unless-stopped
@@ -59,7 +59,7 @@ services:
       - redis
     volumes:
       - ./:/var/www/html
-      - storage_images:/var/www/html/storage/app/prescriptions
+      - storage_images:/var/www/html/storage/app/private/prescriptions
       - sqlite_data:/var/sqlite
     restart: unless-stopped
 
