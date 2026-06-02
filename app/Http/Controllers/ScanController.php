@@ -132,15 +132,11 @@ class ScanController extends Controller
 
         abort_unless($scan->source_image_path, 404);
 
-        // Storage::disk('local')->path() utilise la racine configurée dans
-        // config/filesystems.php (storage/app/private en Laravel 11).
-        // NE PAS utiliser storage_path("app/{$path}") qui hardcode "app/" et
-        // ignore la clé 'root' du disque → 404 quand root = storage/app/private.
-        $path = Storage::disk('local')->path($scan->source_image_path);
-        abort_unless(file_exists($path), 404);
+        // resolveStoragePath() vérifie que le chemin reste sous la racine du disque
+        // local (protection traversée de répertoire) et retourne le chemin absolu réel.
+        $path = PrescriptionController::resolveStoragePath($scan->source_image_path);
 
-        // response()->file() → Content-Disposition: inline (affichage navigateur).
-        // Supporte les requêtes Range pour mobile/PWA.
+        // response()->file() → Content-Disposition: inline + support Range (mobile/PWA).
         return response()->file($path, [
             'Content-Type' => mime_content_type($path) ?: 'image/jpeg',
         ]);

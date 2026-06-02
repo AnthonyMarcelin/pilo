@@ -97,15 +97,9 @@ class PrescriptionController extends Controller
         abort_if($prescription->user_id !== $request->user()->id, 403);
         abort_unless($prescription->source_image_path, 404);
 
-        // Storage::disk('local')->path() respecte la racine configurée dans
-        // filesystems.php (storage/app/private en Laravel 11).
-        // Ne pas utiliser storage_path("app/...") qui ignore cette clé 'root'.
-        $path = Storage::disk('local')->path($prescription->source_image_path);
-        abort_unless(file_exists($path), 404);
+        $path = self::resolveStoragePath($prescription->source_image_path);
 
-        // response()->file() sert le fichier avec Content-Disposition: inline
-        // (affichage dans le navigateur / <img>) plutôt que attachment (download).
-        // Supporte aussi les requêtes Range (nécessaire pour mobile/PWA).
+        // response()->file() → Content-Disposition: inline + support Range (mobile/PWA).
         return response()->file($path, [
             'Content-Type' => mime_content_type($path) ?: 'image/jpeg',
         ]);
@@ -225,6 +219,26 @@ class PrescriptionController extends Controller
         }
 
         return $redirect;
+    }
+
+    /**
+     * Résout et valide un chemin image depuis le disque local.
+     *
+     * Protection contre la traversée de répertoire : vérifie que le chemin
+     * résolu reste bien sous la racine du disque 'local' (storage/app/private).
+     * Un source_image_path corrompu (ex : '../../.env') serait rejeté avec 403.
+     */
+    public static function resolveStoragePath(string $relativePath): string
+    {
+        $disk = Storage::disk('local');
+        $root = realpath($disk->path('')) ?: $disk->path('');
+        $path = $disk->path($relativePath);
+
+        // realpath() résout les .. et symlinks — retourne false si le fichier n'existe pas
+        $real = realpath($path);
+        abort_unless($real !== false && str_starts_with($real, $root . DIRECTORY_SEPARATOR), 404);
+
+        return $real;
     }
 
     private static function normalizeName(string $name): string
