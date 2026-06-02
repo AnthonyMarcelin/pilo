@@ -338,6 +338,24 @@ docker compose logs queue --since=30m | grep -A 15 '\[OllamaClient\]'
 
 ---
 
+## Limites connues
+
+### Posologie dégressive (paliers)
+
+Le modèle LLM (qwen2.5:7b) extrait les paliers dégressifs avec une fiabilité raisonnable mais non garantie. Pour un médicament avec plusieurs paliers de dose (ex : corticoïdes, antidépresseurs), **vérifiez toujours la structure extraite** avant de valider. En cas d'échec, saisir la posologie manuellement.
+
+### Indications BDPM
+
+La source de données pour les indications est le libellé SMR de la Haute Autorité de Santé (fichier `CIS_HAS_SMR_bdpm.txt`). Pour certains médicaments, ce libellé est vague (`"dans les indications de l'AMM"`) ou absent. Dans ce cas, aucune indication n'est affichée — c'est une limite des données publiques disponibles, pas un bug.
+
+Le matching nom OCR → BDPM est approximatif (premier mot du nom, insensible à la casse). Pour des noms ambigus, l'indication affichée peut correspondre à une autre spécialité du même principe actif.
+
+### Performance page "Mes médicaments"
+
+Le chargement de la page exécute une requête SQL par médicament pour récupérer l'indication BDPM. Sur un historique avec de nombreux médicaments distincts, cette page peut être légèrement lente. Cette dette technique est documentée et non bloquante pour un usage mono-utilisateur.
+
+---
+
 ## Avertissement médical
 
 Pilo est un **outil d'aide au suivi**, pas un dispositif médical certifié.
