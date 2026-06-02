@@ -372,8 +372,11 @@ final class BdpmParser
      */
     private function simplifySmrLibelle(string $libelle): string
     {
-        // Première phrase : coupe avant ". " suivi d'une majuscule, ou avant \n
-        $firstSentence = preg_split('/\.\s+(?=\p{Lu})|\n/u', $libelle, 2)[0] ?? $libelle;
+        // Première phrase : coupe avant ". " suivi d'une majuscule, ou avant \n.
+        // preg_split() avec /u retourne false sur une séquence UTF-8 malformée ;
+        // en PHP 8, false[0] lève TypeError — la ?? ne capture pas false, seulement null.
+        $parts = preg_split('/\.\s+(?=\p{Lu})|\n/u', $libelle, 2);
+        $firstSentence = ($parts !== false && isset($parts[0])) ? $parts[0] : $libelle;
         $firstSentence = rtrim($firstSentence, '. ');
 
         if (mb_strlen($firstSentence) < 10) {

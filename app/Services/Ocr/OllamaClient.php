@@ -224,12 +224,18 @@ PROMPT;
 
         $raw = $response->json('response', '');
 
-        // Log de diagnostic — permet de voir si le dosage est produit par le modèle
-        // ou perdu dans le mapping. Visible via : docker compose logs queue --tail=100
-        // Limité à 3000 chars pour ne pas saturer les logs.
-        Log::info('[OllamaClient] JSON brut', [
-            'model'    => $this->model,
-            'response' => mb_substr($raw, 0, 3000),
+        // Log de diagnostic (sans données médicales) — indique si Ollama a bien produit
+        // un JSON et combien d'items il contient, sans logguer noms/dosages/prescripteurs.
+        // Visible via : docker compose logs queue --since=10m | grep OllamaClient
+        // Pour déboguer un dosage manquant : comparer item_count vs ce qu'on attend.
+        $debugItems = json_decode($raw, true)['items'] ?? null;
+        Log::info('[OllamaClient] Réponse reçue', [
+            'model'      => $this->model,
+            'length'     => strlen($raw),
+            'item_count' => is_array($debugItems) ? count($debugItems) : 'N/A (JSON invalide)',
+            'has_dosage' => is_array($debugItems)
+                ? count(array_filter($debugItems, fn ($i) => ! empty($i['dosage']))) . '/' . count($debugItems)
+                : 'N/A',
         ]);
 
         return $this->parseJsonDefensively($raw);
