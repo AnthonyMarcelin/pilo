@@ -58,7 +58,10 @@ class ProcessPrescriptionScan implements ShouldQueue
                 : null;
 
             if (! $imagePath || ! file_exists($imagePath)) {
-                throw new OcrException("Image introuvable : {$scan->source_image_path}");
+                // Ne pas inclure source_image_path dans le message : il sera stocké
+                // dans error_message et retourné à l'API — ne pas exposer le chemin interne.
+                Log::warning("ProcessPrescriptionScan : image absente — {$scan->source_image_path}");
+                throw new OcrException('Image introuvable sur le serveur.');
             }
 
             // ── 2. Pipeline OCR ───────────────────────────────────────────────
@@ -77,11 +80,13 @@ class ProcessPrescriptionScan implements ShouldQueue
             ]);
 
         } catch (OcrException $e) {
+            // Log technique complet (chemin, URL Ollama, détail cURL) → logs serveur uniquement.
+            // error_message → client via GET /scans/{id}/status : message générique sans topologie interne.
             Log::warning("ProcessPrescriptionScan {$this->scanId} : {$e->getMessage()}");
 
             $scan->update([
                 'status'        => 'failed',
-                'error_message' => $e->getMessage(),
+                'error_message' => $this->sanitizeErrorMessage($e->getMessage()),
             ]);
 
         } catch (\Throwable $e) {
@@ -92,5 +97,32 @@ class ProcessPrescriptionScan implements ShouldQueue
                 'error_message' => 'Erreur inattendue lors de la lecture. Saisie manuelle recommandée.',
             ]);
         }
+    }
+
+    /**
+     * Retourne un message d'erreur sûr pour l'API publique.
+     *
+     * Les OcrException peuvent contenir l'URL Ollama, le port, des détails cURL
+     * ou des chemins de fichiers internes. On garde seulement les messages métier
+     * compréhensibles par l'utilisateur et sans information topologique.
+     */
+    private function sanitizeErrorMessage(string $message): string
+    {
+        // Messages métier : les retourner tels quels
+        $safePatterns = [
+            'Image introuvable',
+            'réponse vide',
+            'JSON invalide',
+            'Saisie manuelle',
+        ];
+
+        foreach ($safePatterns as $pattern) {
+            if (str_contains($message, $pattern)) {
+                return $message;
+            }
+        }
+
+        // Messages techniques (URL Ollama, cURL, chemins) → message générique
+        return 'Service de lecture indisponible. Réessayez dans quelques instants ou utilisez la saisie manuelle.';
     }
 }
