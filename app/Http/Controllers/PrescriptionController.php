@@ -244,6 +244,9 @@ class PrescriptionController extends Controller
     private static function normalizeName(string $name): string
     {
         $normalized = mb_strtolower(trim($name));
+        // Supprimer le contenu entre parenthèses : "Concerta ( Méthylphénidate... )" → "concerta"
+        $normalized = preg_replace('/\s*\(.*?\)\s*/u', ' ', $normalized);
+        // Supprimer le dosage : "Amoxicilline 500 mg" → "amoxicilline"
         $normalized = preg_replace('/\s+\d.*/u', '', $normalized);
         return trim($normalized);
     }
