@@ -7,13 +7,12 @@ use App\DTOs\PrescriptionDraft;
 /**
  * Contrat unique pour l'extraction d'ordonnance depuis une image.
  *
- * Seul driver autorisé : LocalOcrProvider (100 % local, aucun envoi réseau).
- * L'interface reste enfichable pour d'autres auto-hébergeurs — mais aucun driver
- * cloud ne sera inclus dans Pilo (CLAUDE.md §2.6).
+ * Drivers disponibles (OCR_DRIVER dans .env) :
+ *   'local'   → LocalOcrProvider   : PaddleOCR + Ollama, 100 % auto-hébergé
+ *   'mistral' → MistralOcrProvider : pixtral-12b vision, 1 appel API cloud
  *
- * Retourne toujours un PrescriptionDraft. En cas d'erreur ou de faible confiance,
- * le draft est vide (items vide). Ne lève jamais d'exception côté appelant — le
- * job ProcessPrescriptionScan gère les échecs.
+ * Retourne toujours un PrescriptionDraft. En cas d'erreur,
+ * le job ProcessPrescriptionScan gère l'échec et stocke status='failed'.
  */
 interface OcrProvider
 {

@@ -7,36 +7,30 @@ use App\DTOs\PrescriptionDraft;
 /**
  * Driver OCR Mistral — implémente OcrProvider.
  *
- * Pipeline :
- *   1. MistralOcrClient  → image/PDF → markdown (POST /v1/ocr)
- *   2. MistralChatClient → markdown → JSON structuré (POST /v1/chat/completions)
- *   3. PrescriptionDraftMapper → JSON → PrescriptionDraft
+ * Pipeline en 1 appel : image/PDF → JSON structuré → PrescriptionDraft.
+ * MistralOcrClient envoie le document à mistral-ocr-latest via /v1/ocr avec
+ * document_annotation_format (json_schema) et reçoit directement le JSON
+ * de prescription dans response["document_annotation"].
  *
  * Avantages vs pipeline local :
  *   - Zéro RAM GPU/CPU pour les modèles IA (tout en cloud)
- *   - OCR de meilleure qualité (lecteur de 12+ médicaments vs ~7 en local)
- *   - Temps de scan < 10 s vs 5-8 min en local
+ *   - Lecture supérieure sur ordonnances manuscrites et tamponnées
+ *   - Temps de scan ~2 s vs 5-8 min en local
  *
- * Voir config('pilo.ocr_driver') = 'mistral' pour activer ce driver.
- * Requiert MISTRAL_API_KEY dans .env.
+ * Pré-requis prod : ZDR (zéro rétention) activé sur le compte Mistral
+ * avant tout usage avec de vraies ordonnances. Voir config('pilo.ocr_driver').
  */
 class MistralOcrProvider implements OcrProvider
 {
     public function __construct(
         private readonly MistralOcrClient        $ocrClient,
-        private readonly MistralChatClient       $chatClient,
         private readonly PrescriptionDraftMapper  $mapper,
     ) {}
 
     public function extract(string $imagePath): PrescriptionDraft
     {
-        // Étape 1 — OCR : image/PDF → texte markdown
-        $markdown = $this->ocrClient->extractText($imagePath);
+        $json = $this->ocrClient->extract($imagePath);
 
-        // Étape 2 — Structuration : markdown → JSON conforme au schéma de prescription
-        $json = $this->chatClient->normalize($markdown);
-
-        // Étape 3 — Mapping : JSON → PrescriptionDraft (identique au pipeline local)
         return $this->mapper->map($json);
     }
 }

@@ -1,10 +1,12 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { Head, Link, router } from '@inertiajs/vue3'
-import { ref } from 'vue'
+import { Head, Link, router, usePage } from '@inertiajs/vue3'
+import { computed, ref } from 'vue'
 
-const scanInput = ref(null)
-const uploading = ref(false)
+const scanInput  = ref(null)
+const uploading  = ref(false)
+const ocrDriver  = computed(() => usePage().props.ocr_driver ?? 'local')
+const isMistral  = computed(() => ocrDriver.value === 'mistral')
 
 function openScanner() {
   scanInput.value?.click()
@@ -59,6 +61,21 @@ async function onImageSelected(e) {
       <p class="text-sm text-slate-400 mt-0.5">Scanner ou saisir une ordonnance</p>
     </div>
 
+    <!-- Bannière informative — uniquement si OCR_DRIVER=mistral -->
+    <div
+      v-if="isMistral"
+      class="mx-4 mb-1 flex items-start gap-2.5 rounded-xl px-3.5 py-3"
+      style="background-color:#eff6ff; border:1px solid #bfdbfe;"
+    >
+      <svg class="w-4 h-4 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <p class="text-xs leading-relaxed" style="color:#1d4ed8;">
+        L'image sera envoyée à l'API Mistral pour lecture automatique (service externe).
+        Vérifiez toujours les données extraites avant d'enregistrer.
+      </p>
+    </div>
+
     <div class="px-4 py-4 space-y-3">
 
       <!-- Scanner l'ordonnance -->
@@ -83,7 +100,8 @@ async function onImageSelected(e) {
             {{ uploading ? 'Envoi…' : 'Scanner l\'ordonnance' }}
           </p>
           <p class="text-sm text-slate-400 mt-0.5">
-            Lecture automatique par IA locale. Vous vérifierez avant d'enregistrer.
+            <span v-if="isMistral">Lecture via API Mistral (~5-10 s). Vous vérifierez avant d'enregistrer.</span>
+            <span v-else>Lecture automatique par IA locale. Vous vérifierez avant d'enregistrer.</span>
           </p>
         </div>
         <svg class="flex-shrink-0 w-5 h-5 text-slate-300 self-center" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

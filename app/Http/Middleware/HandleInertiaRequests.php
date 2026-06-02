@@ -39,6 +39,10 @@ class HandleInertiaRequests extends Middleware
                 'duplicate_warnings' => fn () => $request->session()->get('duplicate_warnings', []),
                 'scan_error'         => fn () => $request->session()->get('scan_error'),
             ],
+            // Driver OCR actif — accessible dans tous les composants via usePage().props.ocr_driver.
+            // Utilisé pour afficher la bannière "image envoyée à Mistral" sur Create.vue
+            // et adapter le message d'attente sur Scanning.vue.
+            'ocr_driver' => config('pilo.ocr_driver', 'local'),
         ];
     }
 }

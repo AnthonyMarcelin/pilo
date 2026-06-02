@@ -10,14 +10,14 @@ return [
 
     // ── Driver OCR ────────────────────────────────────────────────────────────
     // 'local'   → LocalOcrProvider  : PaddleOCR + Ollama (auto-hébergé, zéro cloud)
-    // 'mistral' → MistralOcrProvider: API Mistral OCR + Chat (cloud, zéro RAM locale)
+    // 'mistral' → MistralOcrProvider: mistral-ocr-latest, 1 appel /v1/ocr (cloud, zéro RAM locale)
     //
     // Changer de driver = modifier OCR_DRIVER dans .env puis `docker compose restart queue`.
     'ocr_driver'       => env('OCR_DRIVER', 'local'),
 
     // ── Mistral API (driver 'mistral') ────────────────────────────────────────
     // Clé API Mistral — JAMAIS committée. Générer sur console.mistral.ai.
-    // Coût indicatif : ~0,001 $ par ordonnance (OCR + structuration).
+    // Coût indicatif : ~0,001 $ par ordonnance (1 appel OCR structuré).
     // Note vie privée : l'image est envoyée aux serveurs Mistral (30j rétention
     // par défaut ; activer ZDR sur console.mistral.ai pour les données de santé).
     'mistral_api_key'  => env('MISTRAL_API_KEY', ''),

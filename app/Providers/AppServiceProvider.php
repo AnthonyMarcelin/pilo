@@ -3,7 +3,6 @@
 namespace App\Providers;
 
 use App\Services\Ocr\LocalOcrProvider;
-use App\Services\Ocr\MistralChatClient;
 use App\Services\Ocr\MistralOcrClient;
 use App\Services\Ocr\MistralOcrProvider;
 use App\Services\Ocr\OcrProvider;
@@ -19,10 +18,11 @@ class AppServiceProvider extends ServiceProvider
     /**
      * Binding du driver OCR selon OCR_DRIVER dans .env.
      *
-     * 'mistral' → MistralOcrProvider (API cloud, zéro RAM modèle local)
+     * 'mistral' → MistralOcrProvider (mistral-ocr-latest, 1 appel /v1/ocr, cloud)
      * 'local'   → LocalOcrProvider  (PaddleOCR + Ollama, auto-hébergé)
      *
      * Changer de driver = modifier une seule ligne dans .env, sans toucher au code.
+     * Pré-requis prod pour 'mistral' : ZDR activé sur console.mistral.ai.
      */
     public function register(): void
     {
@@ -39,7 +39,6 @@ class AppServiceProvider extends ServiceProvider
                 }
                 return new MistralOcrProvider(
                     new MistralOcrClient($apiKey),
-                    new MistralChatClient($apiKey),
                     $mapper,
                 );
             }
