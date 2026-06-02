@@ -1,15 +1,6 @@
-# docker-compose.yml — Pilo (référence)
-# Cible : serveur perso (Proxmox), CPU uniquement, VM 7,7 Go RAM fixes.
-#
-# Budget RAM pic scan (qwen2.5:7b-instruct-q2_K) :
-#   llama-server ~1,8 Go  +  paddleocr-vl ~0,5 Go  +  ollama Q2_K ~2,5 Go
-#   + app+web+queue+redis ~0,7 Go  +  OS/noyau ~0,4 Go
-#   = ~6,4 Go utilisés — 1,3 Go de marge sur 7,7 Go.
-#
-# mem_limit + memswap_limit sur chaque service : garde-fou critique.
-# Si un conteneur dépasse sa limite il est OOM-killed proprement (scan échoue)
-# plutôt que de déclencher un swap storm qui corrompt le filesystem.
-# memswap_limit = mem_limit → zéro swap autorisé par conteneur.
+# docker-compose.yml — Pilo (cloud, driver Mistral OCR)
+# Requiert MISTRAL_API_KEY dans .env.
+# Activer ZDR sur console.mistral.ai avant usage en prod.
 
 services:
   # --- Application Laravel (PHP-FPM) ---
@@ -49,15 +40,9 @@ services:
     build:
       context: .
       dockerfile: docker/app/Dockerfile
-    # --timeout=960 : dépasse le $timeout=900 du job (marge 1 min) pour que le job
-    # puisse timeout proprement sans que le process worker soit tué en premier.
-    # --tries=1 : cohérent avec ProcessPrescriptionScan::$tries=1 — pas de retry
-    # (relancer une inférence VL de 2-5 min bloquerait le worker inutilement).
-    command: php artisan queue:work --tries=1 --timeout=960
+    command: php artisan queue:work --tries=1 --timeout=120
     env_file: .env
     environment:
-      # Le worker ne sert pas de fichiers statiques — laisser `app` gérer la copie
-      # des assets Vite pour éviter la race condition entre les deux conteneurs.
       SKIP_ASSET_COPY: "1"
     depends_on:
       - app
@@ -66,8 +51,8 @@ services:
       - ./:/var/www/html
       - storage_images:/var/www/html/storage/app/private/prescriptions
       - sqlite_data:/var/sqlite
-    mem_limit: 512m
-    memswap_limit: 512m
+    mem_limit: 256m
+    memswap_limit: 256m
     restart: unless-stopped
 
   # --- Cache + file d'attente ---
@@ -79,112 +64,7 @@ services:
     memswap_limit: 200m
     restart: unless-stopped
 
-  # --- Sidecar VLM : llama.cpp server (inférence PaddleOCR-VL GGUF), CPU ---
-  #
-  # Image CPU : ghcr.io/ggml-org/llama.cpp:server (tag sans suffixe = CPU-only).
-  # Conventions de nommage du CI ggml-org/llama.cpp :
-  #   :server           → CPU-only (tag "cpu" → suffixe vide dans le workflow)
-  #   :server-intel     → Intel SYCL/GPU (oneAPI, SIGSEGV sur CPU sans GPU)
-  #   :server-cuda      → NVIDIA CUDA, :server-vulkan → Vulkan, :server-rocm → AMD
-  #
-  # Pour épingler sur la version déployée sur la VM, récupérer le digest :
-  #   docker inspect ghcr.io/ggml-org/llama.cpp:server --format '{{index .RepoDigests 0}}'
-  # puis remplacer "image:" par "image: ghcr.io/ggml-org/llama.cpp@sha256:XXXXX"
-  #
-  # PRÉREQUIS — télécharger les modèles VL dans le volume pilo_vl_models AVANT le démarrage :
-  #
-  #   # Modèle VL 1.6 (primaire, ~936 Mo + ~882 Mo mmproj = ~1.8 Go total sur disque)
-  #   docker run --rm -v pilo_vl_models:/models alpine sh -c "
-  #     wget -q -O /models/PaddleOCR-VL-1.6-GGUF.gguf \
-  #       'https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/main/PaddleOCR-VL-1.6-GGUF.gguf' &&
-  #     wget -q -O /models/PaddleOCR-VL-1.6-GGUF-mmproj.gguf \
-  #       'https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/main/PaddleOCR-VL-1.6-GGUF-mmproj.gguf'
-  #   "
-  #   # Fallback VL 1.5 (si VL 1.6 est indisponible) :
-  #   #   /models/PaddleOCR-VL-1.5.gguf + /models/PaddleOCR-VL-1.5-mmproj.gguf
-  #   #   (même taille ~936+882 Mo — PAS plus petit que 1.6 contrairement à ce qu'indiquait CLAUDE.md)
-  #
-  # RAM attendue llama-server au runtime : ~1.8-2.2 Go (modèle + mmproj + KV cache 4096 ctx).
-  llama-server:
-    image: ghcr.io/ggml-org/llama.cpp:server  # CPU-only (sans suffixe GPU)
-    expose:
-      - "8111"
-    volumes:
-      - vl_models:/models:ro
-    command: >
-      --model /models/PaddleOCR-VL-1.6-GGUF.gguf
-      --mmproj /models/PaddleOCR-VL-1.6-GGUF-mmproj.gguf
-      --host 0.0.0.0
-      --port 8111
-      --ctx-size 4096
-      --threads 4
-    mem_limit: 2.2g
-    memswap_limit: 2.2g
-    restart: unless-stopped
-    # CPU only : pas de section deploy/gpu.
-
-  # --- Service OCR : PaddleOCR-VL pipeline Python (layout + agrégation) ---
-  # Dépend de llama-server (sidecar VLM).
-  # Expose POST /ocr → JSON blocs ordonnés.
-  # Voir docker/paddleocr/app.py pour le détail du contrat de réponse.
-  paddleocr-vl:
-    build:
-      context: ./docker/paddleocr
-      dockerfile: Dockerfile
-    expose:
-      - "8000"
-    environment:
-      # URL BASE du sidecar llama-server — sans /v1 (PaddleOCRVL ajoute le chemin).
-      LLAMA_SERVER_URL: "http://llama-server:8111"
-      # Désactive les 4 HEAD requests de vérification de connectivité vers les
-      # hosters de modèles (HuggingFace, AISudio, ModelScope, BOS) au démarrage.
-      # PP-DocLayoutV2 est en cache dans paddlex_models — pas besoin de joindre internet.
-      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
-    volumes:
-      - paddle_models:/root/.paddleocr
-      # Cache paddlex (PP-DocLayoutV2 layout model). SÉPARÉ de paddle_models/.paddleocr.
-      # Pré-peuplé depuis l'image (build-time download) lors du premier montage.
-      - paddlex_models:/root/.paddlex
-    depends_on:
-      - llama-server
-    mem_limit: 900m
-    memswap_limit: 900m
-    restart: unless-stopped
-    # CPU only : pas de section deploy/gpu.
-
-  # --- Service LLM : Ollama (blocs OCR -> JSON structuré, normalisation) ---
-  # Modèle : qwen2.5:7b-instruct-q2_K (2,5 Go RAM) avec constrained decoding.
-  # IMPORTANT : toujours passer le schéma de l'ordonnance via format=, pas seulement dans le prompt.
-  # Après le 1er démarrage ou changement de modèle :
-  #   docker compose exec ollama ollama pull qwen2.5:7b-instruct-q2_K
-  #   docker compose exec ollama ollama rm  qwen2.5:7b-instruct   # libère ~4.7 Go disque
-  ollama:
-    image: ollama/ollama:0.24.0
-    expose:
-      - "11434"
-    volumes:
-      - ollama_models:/root/.ollama
-    environment:
-      # Décharge le modèle immédiatement après chaque requête (pas de warm-up entre scans).
-      # Sans ça, Ollama garde le 7B en RAM 5 min après le scan → pic mémoire persistant inutile.
-      OLLAMA_KEEP_ALIVE: "0"
-    mem_limit: 3.5g
-    memswap_limit: 3.5g
-    restart: unless-stopped
-
 volumes:
   redis_data:
   storage_images:
-  paddle_models:
-  ollama_models:
-  # Cache paddlex (PP-DocLayoutV2 + autres modèles layout).
-  # Pré-peuplé depuis l'image au premier montage (build-time download).
-  # Chemins dans le conteneur : /root/.paddlex/official_models/PP-DocLayoutV2/
-  paddlex_models:
-  # Volume pour les fichiers GGUF de PaddleOCR-VL.
-  # Contenu attendu : PaddleOCR-VL-1.6-GGUF.gguf + PaddleOCR-VL-1.6-GGUF-mmproj.gguf (~1.8 Go total).
-  # Fallback : PaddleOCR-VL-1.5.gguf + PaddleOCR-VL-1.5-mmproj.gguf (même taille, adapter --model).
-  vl_models:
-  # Volume persistant pour la base SQLite — montée dans app et queue sur /var/sqlite.
-  # Survit à docker compose down/up. Supprimé uniquement par docker compose down -v.
   sqlite_data:

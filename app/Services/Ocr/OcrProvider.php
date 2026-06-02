@@ -5,11 +5,9 @@ namespace App\Services\Ocr;
 use App\DTOs\PrescriptionDraft;
 
 /**
- * Contrat unique pour l'extraction d'ordonnance depuis une image.
+ * Contrat pour l'extraction d'ordonnance depuis une image.
  *
- * Drivers disponibles (OCR_DRIVER dans .env) :
- *   'local'   → LocalOcrProvider   : PaddleOCR + Ollama, 100 % auto-hébergé
- *   'mistral' → MistralOcrProvider : pixtral-12b vision, 1 appel API cloud
+ * Driver : MistralOcrProvider — mistral-ocr-latest, 1 appel POST /v1/ocr.
  *
  * Retourne toujours un PrescriptionDraft. En cas d'erreur,
  * le job ProcessPrescriptionScan gère l'échec et stocke status='failed'.

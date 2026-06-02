@@ -1,7 +1,7 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { Head, router, usePage } from '@inertiajs/vue3'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { Head, router } from '@inertiajs/vue3'
+import { onMounted, onUnmounted, ref } from 'vue'
 import axios from 'axios'
 
 const props = defineProps({
@@ -12,14 +12,11 @@ const props = defineProps({
 const elapsed       = ref(0)
 const errorMsg      = ref(null)
 const isCreditError = ref(false)
-const isMistral     = computed(() => (usePage().props.ocr_driver ?? 'local') === 'mistral')
 let   timer     = null
 let   pollTimer = null
 
 onMounted(() => {
-  // Compteur de temps écoulé
-  timer = setInterval(() => elapsed.value++, 1000)
-  // Polling toutes les 3 secondes
+  timer     = setInterval(() => elapsed.value++, 1000)
   pollTimer = setInterval(poll, 3000)
 })
 
@@ -40,7 +37,6 @@ async function poll() {
       clearInterval(timer)
       clearInterval(pollTimer)
       const msg = data.error_message || 'Lecture impossible.'
-      // Détecter l'erreur crédits Mistral pour afficher un message ciblé
       isCreditError.value = msg.toLowerCase().includes('crédits mistral')
       errorMsg.value = msg
     }
@@ -90,17 +86,12 @@ function formatTime(s) {
       </h1>
 
       <!-- Sous-titre -->
-      <p v-if="!errorMsg && !isMistral" class="text-sm text-slate-400 max-w-xs">
-        L'IA locale analyse l'image.
-        Comptez <strong class="text-slate-500">2 à 5 minutes</strong> selon la taille de l'ordonnance.
-        Laissez la page ouverte — elle se met à jour automatiquement.
-      </p>
-      <p v-if="!errorMsg && isMistral" class="text-sm text-slate-400 max-w-xs">
+      <p v-if="!errorMsg" class="text-sm text-slate-400 max-w-xs">
         L'image est analysée par Mistral (service externe).
         Comptez <strong class="text-slate-500">moins de 30 secondes</strong>.
         Laissez la page ouverte — elle se met à jour automatiquement.
       </p>
-      <!-- Erreur crédits Mistral épuisés — message spécifique avec lien -->
+      <!-- Erreur crédits Mistral épuisés -->
       <div v-else-if="isCreditError" class="max-w-xs space-y-2">
         <p class="text-sm font-medium text-red-700">
           Crédits Mistral insuffisants
